@@ -10,8 +10,7 @@ A monolithic financial analysis agent built with Python 3.13, LangChain, and Lan
 
 - **Language**: Python 3.13
 - **Frameworks**: `langchain`, `langgraph`, `langchain-openai`
-- **Data**: `pandas`, `yfinance` (via MCP server)
-- **Search**: `ddgs` (DuckDuckGo)
+- **Data**: `pandas`, `yfinance`, `ddgs` (DuckDuckGo) — all via MCP server
 - **Config**: `python-dotenv`
 
 ## Environment setup
@@ -78,20 +77,20 @@ MINIMAX_API_KEY=your_minimax_api_key
 
 Get your API key from [MiniMax Open Platform](https://platform.minimaxi.com/).
 
-### 5. MCP yfinance server (required for stock quotes)
+### 5. MCP server (required for stock quotes and news search)
 
-The stock quote tool fetches data via an MCP server instead of calling yfinance directly. You must start the MCP server before running the agent.
+Both the stock quote and news search tools fetch data via an MCP server instead of calling yfinance or DuckDuckGo directly. You must start the MCP server before running the agent.
 
 **Terminal 1 — start the MCP server:**
 
 ```bash
-uv run python mcp_servers/yfinance_server/main.py
+uv run python mcp_servers/market_server/main.py
 ```
 
 By default it listens at `http://127.0.0.1:8000/mcp`. To override:
 
 ```bash
-MCP_YFINANCE_HOST=0.0.0.0 MCP_YFINANCE_PORT=9000 uv run python mcp_servers/yfinance_server/main.py
+MCP_YFINANCE_HOST=0.0.0.0 MCP_YFINANCE_PORT=9000 uv run python mcp_servers/market_server/main.py
 ```
 
 **Terminal 2 — if the server runs elsewhere, set the client URL in `.env`:**
@@ -120,7 +119,7 @@ messages = run_once("What is the latest price of AAPL?")
 
 ## Verify tools (optional)
 
-Stock quote (requires MCP server running):
+Stock quote and news search (requires MCP server running):
 
 ```bash
 uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote.invoke({'ticker': 'AAPL'}))"
@@ -137,7 +136,7 @@ uv run python -c "from app.tools.finance_tools import search_news_with_duckduckg
 - `app/graph.py` — LangGraph ReAct graph (agent + tools nodes, MiniMax LLM).
 - `app/tools/finance_tools.py` — LangChain tools: `get_us_stock_quote` (via MCP), `search_news_with_duckduckgo`.
 - `app/mcp_client/finance_client.py` — MCP client that calls the yfinance MCP server.
-- `mcp_servers/yfinance_server/main.py` — MCP server exposing `get_us_stock_quote` (uses yfinance).
+- `mcp_servers/market_server/main.py` — MCP server exposing `get_us_stock_quote` (yfinance) and `search_news_with_duckduckgo` (DuckDuckGo).
 - `tests/manual_run.py` — Interactive CLI for the agent.
 
 ## License
