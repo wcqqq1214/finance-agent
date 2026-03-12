@@ -1,47 +1,121 @@
-## finance-agent
+# finance-agent
 
-基于 Python 3.13、LangChain 与 LangGraph 的单体金融分析 Agent。
+[English](README.md) | [中文](README.zh-CN.md)
 
-### 技术栈
+---
 
-- **语言**: Python 3.13
-- **核心框架**: `langchain`, `langgraph`, `langchain-openai`
-- **数据处理**: `pandas`, `yfinance`
-- **搜索工具**: `tavily-python`, `duckduckgo-search`
-- **环境变量管理**: `python-dotenv`
+A monolithic financial analysis agent built with Python 3.13, LangChain, and LangGraph. It uses a ReAct-style graph to answer questions about US stock quotes and related news via MiniMax (OpenAI-compatible API) and tools such as Yahoo Finance and DuckDuckGo.
 
-### 安装与环境
+## Tech stack
 
-1. 创建并激活 Python 3.13 的 uv 虚拟环境（已完成）  
-2. 安装依赖：
+- **Language**: Python 3.13
+- **Frameworks**: `langchain`, `langgraph`, `langchain-openai`
+- **Data**: `pandas`, `yfinance`
+- **Search**: `ddgs` (DuckDuckGo)
+- **Config**: `python-dotenv`
+
+## Environment setup
+
+### Prerequisites
+
+- Python 3.13
+- [uv](https://docs.astral.sh/uv/) (recommended) or `pip`
+
+### 1. Clone and enter the repo
+
+```bash
+git clone <your-repo-url>
+cd finance-agent
+```
+
+### 2. Create and activate a virtual environment
+
+**With uv:**
+
+```bash
+uv venv
+source .venv/bin/activate   # Linux / macOS
+# or  .venv\Scripts\activate  on Windows
+```
+
+**With standard Python:**
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install dependencies
+
+**With uv (from project root):**
 
 ```bash
 uv sync
 ```
 
-3. 在项目根目录创建 `.env` 文件，例如：
+**With pip:**
 
 ```bash
-OPENAI_API_KEY=你的OpenAIKey
-TAVILY_API_KEY=你的TavilyKey
-MINIMAX_API_KEY=你的MinimaxKey
-# 若使用其他模型或服务，可以在此处继续添加
+pip install -e .
 ```
 
-### 验证第一个金融工具函数
+Or install from `pyproject.toml` dependencies manually if not using `pip install -e .`.
 
-在完成依赖安装后，可以在终端中运行以下命令验证行情工具是否正常工作：
+### 4. Configure environment variables
+
+In the project root, create a `.env` file (do not commit it):
 
 ```bash
-uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote('AAPL'))"
+# Required: MiniMax API key (agent uses OpenAI-compatible endpoint)
+MINIMAX_API_KEY=your_minimax_api_key
+
+# Optional: override base URL (default: https://api.minimaxi.com/v1)
+# MINIMAX_BASE_URL=https://api.minimax.io/v1
+
+# Optional: model name (default: MiniMax-M2.5)
+# MINIMAX_MODEL=MiniMax-M2.5
 ```
 
-你也可以尝试一个无效代码，确认错误处理逻辑：
+Get your API key from [MiniMax Open Platform](https://platform.minimaxi.com/).
+
+## Run the agent
+
+Interactive CLI (recommended for quick testing):
 
 ```bash
-uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote('INVALID123'))"
+uv run python -m tests.manual_run
 ```
 
-### 下一步开发
+Then type questions in natural language (e.g. “帮我看一下 AAPL 的最新股价和最近重要新闻”). Type `exit` or `quit` to exit.
 
-- Step 2：继续扩展更多金融与搜索工具函数，并集成到 LangGraph 图中。
+One-shot from Python:
+
+```python
+from app.graph import run_once
+messages = run_once("What is the latest price of AAPL?")
+# last AI message: messages[-1].content
+```
+
+## Verify tools (optional)
+
+Stock quote:
+
+```bash
+uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote.invoke({'ticker': 'AAPL'}))"
+```
+
+News search:
+
+```bash
+uv run python -c "from app.tools.finance_tools import search_news_with_duckduckgo; from pprint import pprint; pprint(search_news_with_duckduckgo.invoke({'query': 'AAPL', 'limit': 2}))"
+```
+
+## Project layout
+
+- `app/graph.py` — LangGraph ReAct graph (agent + tools nodes, MiniMax LLM).
+- `app/tools/finance_tools.py` — Tools: `get_us_stock_quote`, `search_news_with_duckduckgo`.
+- `tests/manual_run.py` — Interactive CLI for the agent.
+
+## License
+
+See repository defaults.
