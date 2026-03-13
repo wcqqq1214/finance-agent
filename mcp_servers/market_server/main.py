@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# When run as script (e.g. python mcp_servers/market_server/main.py), ensure project root is on path.
+if __name__ != "__main__" or getattr(sys, "frozen", False):
+    _root = None
+else:
+    _root = Path(__file__).resolve().parents[2]
+    if _root and str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
+
+import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
 
 import yfinance as yf
+import pandas as pd
 from ddgs import DDGS
 from mcp.server.fastmcp import FastMCP
+
+from mcp_servers.market_server.indicators import (
+    compute_bollinger_bands,
+    compute_macd,
+    sma,
+)
 
 mcp = FastMCP("yfinance-server", json_response=True)
 
@@ -201,13 +220,77 @@ def get_us_stock_quote(ticker: str) -> dict[str, Any]:
     return _fetch_quote_impl(ticker)
 
 
+def _get_stock_data_impl(ticker: str, period: str = "3mo") -> dict[str, Any]:
+    """Fetch history via yfinance and compute SMA, MACD, Bollinger; return last-bar snapshot."""
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        return {"ticker": "", "error": "Empty ticker."}
+
+    try:
+        t = yf.Ticker(normalized)
+        hist = t.history(period=period, auto_adjust=True)
+        if hist is None or hist.empty:
+            return {
+                "ticker": normalized,
+                "error": "No history returned for this ticker/period.",
+            }
+
+        close = cast(pd.Series, hist["Close"].astype(float))
+        sma_20_val = sma(close, 20)
+        macd_result = compute_macd(close)
+        bb_result = compute_bollinger_bands(close, window=20, num_std=2.0)
+
+        last_close = float(close.iloc[-1])
+        return {
+            "ticker": normalized,
+            "last_close": last_close,
+            "sma_20": sma_20_val,
+            "macd_line": macd_result.get("macd_line") if macd_result else None,
+            "macd_signal": macd_result.get("signal") if macd_result else None,
+            "macd_histogram": macd_result.get("histogram") if macd_result else None,
+            "bb_middle": bb_result.get("middle") if bb_result else None,
+            "bb_upper": bb_result.get("upper") if bb_result else None,
+            "bb_lower": bb_result.get("lower") if bb_result else None,
+            "period_rows": int(len(close)),
+        }
+    except Exception as exc:
+        return {
+            "ticker": normalized,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+@mcp.tool()
+def get_stock_data(ticker: str, period: str = "3mo") -> dict[str, Any]:
+    """Fetch historical OHLCV via Yahoo Finance and compute SMA, MACD, Bollinger Bands.
+
+    Use for quantitative/technical analysis. Supports US equities and crypto
+    pairs (e.g. NVDA, AAPL, BTC-USD). Returns last-bar snapshot with indicators.
+
+    Args:
+        ticker: Symbol to query (e.g. NVDA, AAPL, BTC-USD).
+        period: History period, default 3mo (e.g. 1mo, 6mo, 1y).
+
+    Returns:
+        Dict with ticker, last_close, sma_20, macd_line, macd_signal,
+        macd_histogram, bb_middle, bb_upper, bb_lower, period_rows.
+        May include error field if data cannot be loaded.
+    """
+    return _get_stock_data_impl(ticker, period)
+
+
+logger = logging.getLogger(__name__)
+
+
 def _search_news_impl(query: str, limit: int) -> List[dict[str, Any]]:
     """Internal implementation of news search using DuckDuckGo."""
     items: List[dict[str, Any]] = []
     try:
         with DDGS() as ddgs:
             results = ddgs.news(query.strip(), max_results=limit)
-            for entry in results:
+            raw_list = list(results)
+            logger.info("DuckDuckGo news raw count for %r: %d", query, len(raw_list))
+            for entry in raw_list:
                 if not isinstance(entry, dict):
                     continue
                 title = entry.get("title")
@@ -237,8 +320,8 @@ def _search_news_impl(query: str, limit: int) -> List[dict[str, Any]]:
                     "published_time": published_time,
                     "snippet": snippet,
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("DuckDuckGo news search failed for %r: %s", query, exc)
     return items
 
 
@@ -264,6 +347,10 @@ def main() -> None:
     """Run the MCP server with streamable HTTP transport."""
     import uvicorn
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     host = os.environ.get("MCP_YFINANCE_HOST", "127.0.0.1")
     port = int(os.environ.get("MCP_YFINANCE_PORT", "8000"))
     app = mcp.streamable_http_app()

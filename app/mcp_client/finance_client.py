@@ -10,6 +10,7 @@ from typing import Any, List
 from dotenv import load_dotenv
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import TextContent
 
 load_dotenv()
 
@@ -29,7 +30,7 @@ async def _call_get_us_stock_quote_async(ticker: str, url: str) -> dict[str, Any
                 error_msg = "Unknown MCP error"
                 if result.content:
                     for part in result.content:
-                        if hasattr(part, "text"):
+                        if isinstance(part, TextContent):
                             error_msg = part.text
                             break
                 raise RuntimeError(f"MCP tool error: {error_msg}")
@@ -37,7 +38,7 @@ async def _call_get_us_stock_quote_async(ticker: str, url: str) -> dict[str, Any
                 raise RuntimeError("MCP tool returned empty content")
             text = ""
             for part in result.content:
-                if hasattr(part, "text"):
+                if isinstance(part, TextContent):
                     text = part.text
                     break
             if not text:
@@ -61,6 +62,58 @@ def call_get_us_stock_quote(ticker: str) -> dict[str, Any]:
     return asyncio.run(_call_get_us_stock_quote_async(ticker, url))
 
 
+async def _call_get_stock_data_async(
+    ticker: str, period: str, url: str
+) -> dict[str, Any]:
+    """Call the get_stock_data tool on the MCP server."""
+    async with streamable_http_client(url) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "get_stock_data",
+                arguments={"ticker": ticker, "period": period},
+            )
+            if result.isError:
+                error_msg = "Unknown MCP error"
+                if result.content:
+                    for part in result.content:
+                        if isinstance(part, TextContent):
+                            error_msg = part.text
+                            break
+                raise RuntimeError(f"MCP tool error: {error_msg}")
+            if not result.content:
+                raise RuntimeError("MCP tool returned empty content")
+            text = ""
+            for part in result.content:
+                if isinstance(part, TextContent):
+                    text = part.text
+                    break
+            if not text:
+                raise RuntimeError("MCP tool returned no text content")
+            return json.loads(text)
+
+
+def call_get_stock_data(
+    ticker: str, period: str = "3mo"
+) -> dict[str, Any]:
+    """Call the MCP server's get_stock_data tool.
+
+    Args:
+        ticker: Symbol to query (e.g. NVDA, AAPL, BTC-USD).
+        period: History period (e.g. 1mo, 3mo, 1y). Default 3mo.
+
+    Returns:
+        A dict with ticker, last_close, sma_20, macd_line, macd_signal,
+        macd_histogram, bb_middle, bb_upper, bb_lower, period_rows.
+        May include error key if the request failed.
+
+    Raises:
+        RuntimeError: If the MCP server is unreachable or returns an error.
+    """
+    url = os.environ.get("MCP_YFINANCE_URL", DEFAULT_MCP_URL)
+    return asyncio.run(_call_get_stock_data_async(ticker, period, url))
+
+
 async def _call_search_news_async(
     query: str, limit: int, url: str
 ) -> List[dict[str, Any]]:
@@ -76,21 +129,23 @@ async def _call_search_news_async(
                 error_msg = "Unknown MCP error"
                 if result.content:
                     for part in result.content:
-                        if hasattr(part, "text"):
+                        if isinstance(part, TextContent):
                             error_msg = part.text
                             break
                 raise RuntimeError(f"MCP tool error: {error_msg}")
             if not result.content:
                 return []
-            text = ""
+            # Server may return a list as multiple parts (one JSON object per part).
+            out: List[dict[str, Any]] = []
             for part in result.content:
-                if hasattr(part, "text"):
-                    text = part.text
-                    break
-            if not text:
-                return []
-            data = json.loads(text)
-            return data if isinstance(data, list) else []
+                if not isinstance(part, TextContent) or not part.text:
+                    continue
+                data = json.loads(part.text)
+                if isinstance(data, list):
+                    out.extend(data)
+                elif isinstance(data, dict):
+                    out.append(data)
+            return out
 
 
 def call_search_news(query: str, limit: int = 5) -> List[dict[str, Any]]:

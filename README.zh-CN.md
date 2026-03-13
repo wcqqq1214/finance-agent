@@ -4,7 +4,7 @@
 
 ---
 
-基于 Python 3.13、LangChain 与 LangGraph 的单体金融分析 Agent，通过 ReAct 图与 MiniMax（OpenAI 兼容接口）回答美股行情与相关新闻，使用 Yahoo Finance、DuckDuckGo 等工具。
+基于 Python 3.13、LangChain 与 LangGraph 的多智能体金融分析系统，采用 Fan-out / Fan-in 拓扑（Quant 与 News 并行，最后由 CIO 汇总），通过 MiniMax（OpenAI 兼容接口）与 MCP 服务器获取行情/指标与新闻并生成报告。
 
 ## 技术栈
 
@@ -77,9 +77,9 @@ MINIMAX_API_KEY=你的_minimax_api_key
 
 API Key 可在 [MiniMax 开放平台](https://platform.minimaxi.com/) 获取。
 
-### 5. MCP 服务器（行情与新闻工具必需）
+### 5. MCP 服务器（行情/指标与新闻工具必需）
 
-行情与新闻工具均通过 MCP 协议从独立服务器获取数据，不再直接调用 yfinance 或 DuckDuckGo。运行 Agent 前需先启动 MCP 服务器。
+行情（含历史+指标）与新闻工具均通过 MCP 协议从独立服务器获取数据，不再直接调用 yfinance 或 DuckDuckGo。运行 Agent 前需先启动 MCP 服务器。
 
 **终端 1 — 启动 MCP 服务器：**
 
@@ -112,14 +112,14 @@ uv run python -m tests.manual_run
 在 Python 中单次调用：
 
 ```python
-from app.graph import run_once
-messages = run_once("What is the latest price of AAPL?")
-# 最后一条 AI 回复: messages[-1].content
+from app.graph_multi import run_once
+final_state = run_once("分析 NVDA 与 BTC-USD")
+print(final_state["final_decision"])
 ```
 
 ## 验证工具（可选）
 
-行情与新闻工具（需先启动 MCP 服务器）：
+行情/指标与新闻工具（需先启动 MCP 服务器）：
 
 ```bash
 uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote.invoke({'ticker': 'AAPL'}))"
@@ -131,12 +131,19 @@ uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from p
 uv run python -c "from app.tools.finance_tools import search_news_with_duckduckgo; from pprint import pprint; pprint(search_news_with_duckduckgo.invoke({'query': 'AAPL', 'limit': 2}))"
 ```
 
+历史 + 指标（SMA/MACD/布林带，经 MCP）：
+
+```bash
+uv run python -c "from app.tools.finance_tools import get_stock_data; print(get_stock_data.invoke({'ticker': 'NVDA', 'period': '3mo'}))"
+```
+
 ## 项目结构
 
-- `app/graph.py` — LangGraph ReAct 图（agent 节点 + 工具节点，MiniMax LLM）
-- `app/tools/finance_tools.py` — LangChain 工具：`get_us_stock_quote`（经 MCP 调用）、`search_news_with_duckduckgo`
+- `app/graph_multi.py` — 多智能体 LangGraph（Quant + News 并行，CIO 汇总）
+- `app/state.py` — 多智能体图使用的 `AgentState`
+- `app/tools/finance_tools.py` — LangChain 工具（均经 MCP）：`get_us_stock_quote`、`get_stock_data`、`search_news_with_duckduckgo`
 - `app/mcp_client/finance_client.py` — MCP 客户端，调用 yfinance MCP 服务器
-- `mcp_servers/market_server/main.py` — MCP 服务器，暴露 `get_us_stock_quote`（yfinance）与 `search_news_with_duckduckgo`（DuckDuckGo）
+- `mcp_servers/market_server/main.py` — MCP 服务器，暴露 `get_us_stock_quote`、`get_stock_data`（历史+指标）与 `search_news_with_duckduckgo`（DuckDuckGo）
 - `tests/manual_run.py` — Agent 交互式 CLI
 
 ## License

@@ -16,4 +16,8 @@ dependencies = [
     "python-dotenv",
 ]
 
- [tool.uv]
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.uv]

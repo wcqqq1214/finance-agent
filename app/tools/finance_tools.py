@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, TypedDict
 
 from langchain_core.tools import tool
 
-from app.mcp_client.finance_client import call_get_us_stock_quote, call_search_news
+from app.mcp_client.finance_client import (
+    call_get_stock_data,
+    call_get_us_stock_quote,
+    call_search_news,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso_utc8() -> str:
@@ -226,4 +234,117 @@ def search_news_with_duckduckgo(query: str, limit: int = 5) -> List[NewsItem]:
     except Exception:
         return []
 
+
+class StockDataSummary(TypedDict, total=False):
+    """Structured summary returned by get_stock_data for LLM consumption.
+
+    Attributes:
+        ticker: Normalized ticker (e.g. NVDA, BTC-USD).
+        error: Set when fetch or computation fails.
+        last_close: Most recent adjusted close.
+        sma_20: Simple moving average (20 periods) of close.
+        macd_line: MACD line (EMA12 - EMA26).
+        macd_signal: Signal line (EMA 9 of macd_line).
+        macd_histogram: Histogram (macd_line - macd_signal).
+        bb_middle: Bollinger middle band (SMA 20).
+        bb_upper: Bollinger upper band.
+        bb_lower: Bollinger lower band.
+        period_rows: Number of rows in history series.
+    """
+
+    ticker: str
+    error: str
+    last_close: Optional[float]
+    sma_20: Optional[float]
+    macd_line: Optional[float]
+    macd_signal: Optional[float]
+    macd_histogram: Optional[float]
+    bb_middle: Optional[float]
+    bb_upper: Optional[float]
+    bb_lower: Optional[float]
+    period_rows: int
+
+
+@tool("get_stock_data")
+def get_stock_data(ticker: str, period: str = "3mo") -> str:
+    """Fetch historical OHLCV via yfinance and compute SMA and MACD-style indicators.
+
+    Use this for quantitative/technical analysis only. Supports US equities and
+    crypto pairs accepted by Yahoo (e.g. ``NVDA``, ``BTC-USD``). Returns a
+    compact JSON string so the model can cite numbers without guessing.
+
+    Args:
+        ticker: Symbol such as ``NVDA``, ``AAPL``, or ``BTC-USD``.
+        period: yfinance history period, default ``3mo`` (e.g. ``1mo``, ``6mo``, ``1y``).
+
+    Returns:
+        JSON string with keys including ``ticker``, ``last_close``, ``sma_20``,
+        ``macd_line``, ``macd_signal``, ``macd_histogram``, ``bb_middle``,
+        ``bb_upper``, ``bb_lower``, or ``error`` if
+        data cannot be loaded.
+    """
+
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        return json.dumps(
+            StockDataSummary(ticker="", error="Empty ticker."),
+            ensure_ascii=False,
+        )
+
+    try:
+        result = call_get_stock_data(normalized, period)
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps(
+            StockDataSummary(
+                ticker=normalized,
+                error=f"{type(exc).__name__}: {exc}",
+            ),
+            ensure_ascii=False,
+        )
+
+
+@tool("search_financial_news")
+def search_financial_news(query: str, limit: int = 5) -> List[NewsItem]:
+    """Search recent financial news via DuckDuckGo (same backend as search_news_with_duckduckgo).
+
+    Use for macro/sentiment research only. Pass ticker or company name or theme.
+
+    Args:
+        query: Search query (e.g. ticker, company name, or topic).
+        limit: Max number of articles to return.
+
+    Returns:
+        List of NewsItem dicts (title, url, source, published_time, snippet).
+    """
+    query_normalized = query.strip()
+    if not query_normalized:
+        return []
+    try:
+        results = call_search_news(query_normalized, limit)
+        out = [
+            NewsItem(
+                title=r.get("title"),
+                url=r.get("url"),
+                source=r.get("source"),
+                published_time=r.get("published_time"),
+                snippet=r.get("snippet"),
+            )
+            for r in results
+            if isinstance(r, dict)
+        ]
+        if not out and results is not None and len(results) == 0:
+            logger.info(
+                "search_financial_news: MCP returned empty list for query=%r",
+                query_normalized,
+            )
+        return out
+    except Exception as exc:
+        logger.warning(
+            "search_financial_news failed for query=%r: %s",
+            query_normalized,
+            exc,
+            exc_info=True,
+        )
+        return []
 
