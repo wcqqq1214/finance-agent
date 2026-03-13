@@ -4,7 +4,7 @@
 
 ---
 
-A monolithic financial analysis agent built with Python 3.13, LangChain, and LangGraph. It uses a ReAct-style graph to answer questions about US stock quotes and related news via MiniMax (OpenAI-compatible API) and tools such as Yahoo Finance and DuckDuckGo.
+A multi-agent financial analysis system built with Python 3.13, LangChain, and LangGraph. It uses a Fan-out / Fan-in topology (Quant + News in parallel, then CIO synthesis) to answer questions about market data and related news via MiniMax (OpenAI-compatible API) and an MCP server.
 
 ## Tech stack
 
@@ -77,9 +77,9 @@ MINIMAX_API_KEY=your_minimax_api_key
 
 Get your API key from [MiniMax Open Platform](https://platform.minimaxi.com/).
 
-### 5. MCP server (required for stock quotes and news search)
+### 5. MCP server (required for market data and news)
 
-Both the stock quote and news search tools fetch data via an MCP server instead of calling yfinance or DuckDuckGo directly. You must start the MCP server before running the agent.
+Market data (quotes and historical+indicators) and news search fetch data via an MCP server instead of calling yfinance or DuckDuckGo directly. You must start the MCP server before running the agent.
 
 **Terminal 1 — start the MCP server:**
 
@@ -112,14 +112,14 @@ Then type questions in natural language (e.g. “帮我看一下 AAPL 的最新�
 One-shot from Python:
 
 ```python
-from app.graph import run_once
-messages = run_once("What is the latest price of AAPL?")
-# last AI message: messages[-1].content
+from app.graph_multi import run_once
+final_state = run_once("Analyze NVDA and BTC-USD")
+print(final_state["final_decision"])
 ```
 
 ## Verify tools (optional)
 
-Stock quote and news search (requires MCP server running):
+Market data and news tools (requires MCP server running):
 
 ```bash
 uv run python -c "from app.tools.finance_tools import get_us_stock_quote; from pprint import pprint; pprint(get_us_stock_quote.invoke({'ticker': 'AAPL'}))"
@@ -131,12 +131,19 @@ News search:
 uv run python -c "from app.tools.finance_tools import search_news_with_duckduckgo; from pprint import pprint; pprint(search_news_with_duckduckgo.invoke({'query': 'AAPL', 'limit': 2}))"
 ```
 
+Historical + indicators (SMA/MACD/Bollinger) via MCP:
+
+```bash
+uv run python -c "from app.tools.finance_tools import get_stock_data; print(get_stock_data.invoke({'ticker': 'NVDA', 'period': '3mo'}))"
+```
+
 ## Project layout
 
-- `app/graph.py` — LangGraph ReAct graph (agent + tools nodes, MiniMax LLM).
-- `app/tools/finance_tools.py` — LangChain tools: `get_us_stock_quote` (via MCP), `search_news_with_duckduckgo`.
+- `app/graph_multi.py` — Multi-agent LangGraph (Quant + News parallel, then CIO synthesis).
+- `app/state.py` — `AgentState` for the multi-agent graph.
+- `app/tools/finance_tools.py` — LangChain tools (all via MCP): `get_us_stock_quote`, `get_stock_data`, `search_news_with_duckduckgo`.
 - `app/mcp_client/finance_client.py` — MCP client that calls the yfinance MCP server.
-- `mcp_servers/market_server/main.py` — MCP server exposing `get_us_stock_quote` (yfinance) and `search_news_with_duckduckgo` (DuckDuckGo).
+- `mcp_servers/market_server/main.py` — MCP server exposing `get_us_stock_quote`, `get_stock_data` (history + indicators), and `search_news_with_duckduckgo`.
 - `tests/manual_run.py` — Interactive CLI for the agent.
 
 ## License
