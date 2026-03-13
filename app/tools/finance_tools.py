@@ -41,6 +41,9 @@ class StockQuote(TypedDict, total=False):
         day_high: The highest traded price during the current trading day.
         day_low: The lowest traded price during the current trading day.
         volume: The most recent traded volume for the current trading day.
+        fifty_two_week_high: 52-week high price if available.
+        fifty_two_week_low: 52-week low price if available.
+        market_cap: Market capitalization in same currency as listing (e.g. USD for US stocks).
         timestamp: ISO8601 string representing the time when the quote was retrieved.
         error: Optional error message if the quote could not be retrieved successfully.
     """
@@ -55,6 +58,9 @@ class StockQuote(TypedDict, total=False):
     day_high: Optional[float]
     day_low: Optional[float]
     volume: Optional[float]
+    fifty_two_week_high: Optional[float]
+    fifty_two_week_low: Optional[float]
+    market_cap: Optional[float]
     timestamp: Optional[str]
     error: Optional[str]
 
@@ -133,6 +139,9 @@ def get_us_stock_quote(ticker: str) -> StockQuote:
             day_high=None,
             day_low=None,
             volume=None,
+            fifty_two_week_high=None,
+            fifty_two_week_low=None,
+            market_cap=None,
             timestamp=_now_iso_utc8(),
             error=(
                 "Ticker symbol is empty. Please provide a valid US stock "
@@ -153,6 +162,9 @@ def get_us_stock_quote(ticker: str) -> StockQuote:
             day_high=result.get("day_high"),
             day_low=result.get("day_low"),
             volume=result.get("volume"),
+            fifty_two_week_high=result.get("fifty_two_week_high"),
+            fifty_two_week_low=result.get("fifty_two_week_low"),
+            market_cap=result.get("market_cap"),
             timestamp=result.get("timestamp"),
             error=result.get("error"),
         )
@@ -168,6 +180,9 @@ def get_us_stock_quote(ticker: str) -> StockQuote:
             day_high=None,
             day_low=None,
             volume=None,
+            fifty_two_week_high=None,
+            fifty_two_week_low=None,
+            market_cap=None,
             timestamp=_now_iso_utc8(),
             error=(
                 "Failed to fetch quote via MCP: "
