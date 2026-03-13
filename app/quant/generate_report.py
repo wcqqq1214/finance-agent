@@ -20,6 +20,7 @@ from langchain_openai import ChatOpenAI
 
 from app.reporting.writer import write_json
 from app.tools.finance_tools import get_stock_data
+from app.tools.quant_tool import run_ml_quant_analysis
 
 
 load_dotenv()
@@ -146,6 +147,18 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
     summary = obj.get("summary")
     summary_str = str(summary).strip() if isinstance(summary, str) and summary.strip() else ""
 
+    # Run the ML quant analysis tool to enrich the bundle with an ml_quant block.
+    try:
+        ml_quant_raw = run_ml_quant_analysis.invoke({"ticker": asset_norm})
+        ml_quant = cast(Dict[str, Any], ml_quant_raw if isinstance(ml_quant_raw, dict) else {})
+    except Exception as exc:
+        ml_quant = {
+            "model": "lightgbm_v1",
+            "target": "next_day_direction",
+            "data_source": "yfinance_direct",
+            "error": f"Failed to run ML quant analysis: {type(exc).__name__}: {exc}",
+        }
+
     report: Dict[str, Any] = {
         "asset": asset_norm,
         "module": "quant",
@@ -160,6 +173,7 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
             "resistance": levels.get("resistance"),
         },
         "summary": summary_str,
+        "ml_quant": ml_quant,
     }
 
     path = out_dir / "quant.json"

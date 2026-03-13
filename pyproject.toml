@@ -16,6 +16,11 @@ dependencies = [
     "python-dotenv",
     "pytest",
     "playwright",
+    "numpy>=2.2.6",
+    "pandas-ta>=0.4.71b0",
+    "lightgbm>=4.6.0",
+    "shap>=0.51.0",
+    "scikit-learn>=1.8.0",
 ]
 
 [tool.pyright]
