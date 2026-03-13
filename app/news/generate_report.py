@@ -131,7 +131,7 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
     ]
 
     system = (
-        "You are a macro news sentiment analyst. Given a list of recent headlines/snippets about an asset, "
+        "You are a macro news sentiment analyst. Given a list of headlines/snippets from the last 7 days about an asset, "
         "produce a strict JSON object with keys: bias, key_points, sources_used_count.\n"
         "Constraints:\n"
         "- bias must be one of: bullish, bearish, neutral\n"
@@ -159,6 +159,7 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
         "meta": {
             "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
             "source": "duckduckgo",
+            "time_window_days": 7,
         },
         "bias": bias if bias in ("bullish", "bearish", "neutral") else "neutral",
         "key_points": [str(x).strip() for x in key_points if isinstance(x, str) and x.strip()][:6],

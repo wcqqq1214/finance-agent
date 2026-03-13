@@ -27,6 +27,68 @@ def _now_iso_utc8() -> str:
     )
 
 
+def _parse_news_published_time(raw: Optional[str]) -> Optional[datetime]:
+    """Best-effort parse of a DuckDuckGo-style published_time string into UTC datetime.
+
+    The incoming string can be one of:
+
+    - An absolute date/time such as ``\"2025-03-10\"``, ``\"2025-03-10 14:30\"`` or
+      an ISO8601-like representation.
+    - A relative expression such as ``\"2 hours ago\"``, ``\"3 days ago\"`` or
+      ``\"yesterday\"`` (case-insensitive).
+
+    Returns:
+        A timezone-aware ``datetime`` in UTC on successful parse; otherwise ``None``.
+    """
+
+    if not raw:
+        return None
+
+    text = raw.strip()
+    if not text:
+        return None
+
+    now_utc = datetime.now(timezone.utc)
+    lower = text.lower()
+
+    # Handle simple relative expressions first.
+    if "ago" in lower:
+        parts = lower.split()
+        # Expect a shape like: "<num> <unit> ago"
+        try:
+            if len(parts) >= 3 and parts[-1] == "ago":
+                value = int(parts[0])
+                unit = parts[1]
+                if unit.startswith("hour"):
+                    return now_utc - timedelta(hours=value)
+                if unit.startswith("day"):
+                    return now_utc - timedelta(days=value)
+                if unit.startswith("week"):
+                    return now_utc - timedelta(weeks=value)
+        except Exception:
+            return None
+
+    if lower in {"yesterday"}:
+        return now_utc - timedelta(days=1)
+
+    # Try a series of absolute datetime formats.
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(text, fmt)
+            # Assume naive values are UTC.
+            return dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+
+    # Finally, try Python's ISO8601-style parser.
+    try:
+        dt2 = datetime.fromisoformat(text)
+        if dt2.tzinfo is None:
+            dt2 = dt2.replace(tzinfo=timezone.utc)
+        return dt2.astimezone(timezone.utc)
+    except Exception:
+        return None
+
 class StockQuote(TypedDict, total=False):
     """Typed dictionary representing a single stock quote.
 
@@ -321,7 +383,11 @@ def get_stock_data(ticker: str, period: str = "3mo") -> str:
 
 @tool("search_financial_news")
 def search_financial_news(query: str, limit: int = 5) -> List[NewsItem]:
-    """Search recent financial news via DuckDuckGo (same backend as search_news_with_duckduckgo).
+    """Search financial news from roughly the last 7 days via DuckDuckGo.
+
+    This tool uses the same backend as :func:`search_news_with_duckduckgo` but
+    applies an additional time filter to only keep articles whose
+    ``published_time`` can be parsed and falls within the past 7 days.
 
     Use for macro/sentiment research only. Pass ticker or company name or theme.
 
@@ -337,17 +403,26 @@ def search_financial_news(query: str, limit: int = 5) -> List[NewsItem]:
         return []
     try:
         results = call_search_news(query_normalized, limit)
-        out = [
-            NewsItem(
-                title=r.get("title"),
-                url=r.get("url"),
-                source=r.get("source"),
-                published_time=r.get("published_time"),
-                snippet=r.get("snippet"),
+        now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(days=7)
+        out: List[NewsItem] = []
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            published_raw = r.get("published_time")
+            published_dt = _parse_news_published_time(published_raw)
+            # Strict policy: only keep items we can confidently place within the last 7 days.
+            if published_dt is None or published_dt < cutoff:
+                continue
+            out.append(
+                NewsItem(
+                    title=r.get("title"),
+                    url=r.get("url"),
+                    source=r.get("source"),
+                    published_time=published_raw,
+                    snippet=r.get("snippet"),
+                )
             )
-            for r in results
-            if isinstance(r, dict)
-        ]
         if not out and results is not None and len(results) == 0:
             logger.info(
                 "search_financial_news: MCP returned empty list for query=%r",
