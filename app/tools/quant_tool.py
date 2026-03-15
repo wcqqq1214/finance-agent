@@ -5,7 +5,7 @@ from typing import Any, Dict, TypedDict, cast
 
 from langchain_core.tools import tool
 
-from app.ml.feature_engine import build_dataset, load_ohlcv
+from app.ml.feature_engine import build_dataset, load_ohlcv_with_macro
 from app.ml.model_trainer import predict_proba_latest, train_lightgbm
 from app.ml.shap_explainer import ShapSummary, build_markdown_report, explain_latest_sample
 
@@ -22,8 +22,8 @@ class MlQuantResult(TypedDict, total=False):
     Attributes:
         model: Short identifier for the underlying model family and version
             (for example, ``\"lightgbm_v1\"``).
-        target: Name of the prediction target. For this project it is always
-            ``\"next_day_direction\"`` (binary up/down).
+        target: Name of the prediction target (e.g. ``\"next_3d_direction_filtered\"``
+            for 3-day smoothed direction with threshold filter).
         data_source: Identifier of the market data source. For the current
             implementation this is ``\"yfinance_direct\"`` to distinguish it
             from any MCP-based fetchers.
@@ -64,7 +64,7 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
     normalized = (ticker or "").strip().upper()
     base: MlQuantResult = MlQuantResult(
         model="lightgbm_v1",
-        target="next_day_direction",
+        target="next_3d_direction_filtered",
         data_source="yfinance_direct",
     )
 
@@ -75,7 +75,7 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
         return base
 
     try:
-        df = load_ohlcv(normalized, period_years=3)
+        df = load_ohlcv_with_macro(normalized, period_years=5)
         X, y = build_dataset(df)
         model, metrics = train_lightgbm(X, y)
         prob_up = predict_proba_latest(model, X)
@@ -108,25 +108,21 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
 
 @tool("run_ml_quant_analysis")
 def run_ml_quant_analysis(ticker: str) -> MlQuantResult:
-    """Run a LightGBM + SHAP based next-day direction analysis for a single asset.
+    """Run a LightGBM + SHAP based 3-day smoothed direction analysis for a single asset.
 
     This tool is designed for Quant Agents that need a **compact but
     explainable** machine-learning view of an asset's short-term technical
     outlook. Given a ticker (such as ``\"AAPL\"`` or ``\"BTC-USD\"``), it:
 
-    1. Fetches at least three years of daily OHLCV history directly from
-       Yahoo Finance via ``yfinance`` (no MCP indirection in the current
-       version).
-    2. Applies a standardized feature engineering pipeline based on
-       ``pandas_ta`` to compute relative/indicator-style features (returns,
-       momentum, trend distance, volatility and volume ratios).
-    3. Trains a lightweight ``LGBMClassifier`` using a chronological 80/20
-       train/test split and evaluates simple hold-out metrics (Accuracy, AUC).
-    4. Uses SHAP (Shapley Additive explanations) to attribute the prediction
-       for the **most recent day** to individual features, extracting the top
-       positive and negative drivers.
-    5. Generates a natural-language Chinese Markdown summary that explains the
-       model's conclusion and the main risk/driver features.
+    1. Fetches daily OHLCV for the main ticker plus DXY and VIX from Yahoo
+       Finance, merges by date, and builds technical + macro features.
+    2. Builds a thresholded 3-day smoothed direction label (R_future vs epsilon)
+       and drops oscillation samples.
+    3. Trains ``LGBMClassifier`` with strong regularization using
+       ``TimeSeriesSplit(n_splits=5)`` and reports out-of-sample mean AUC/accuracy.
+    4. Uses SHAP to attribute the **most recent day** prediction to top
+       positive and negative features.
+    5. Generates a Chinese Markdown summary with model conclusion and SHAP drivers.
 
     Typical usage:
 
@@ -147,13 +143,14 @@ def run_ml_quant_analysis(ticker: str) -> MlQuantResult:
         ``quant.json.ml_quant``. On success it includes keys:
 
         - ``model``: Currently ``\"lightgbm_v1\"``.
-        - ``target``: Always ``\"next_day_direction\"``.
+        - ``target``: e.g. ``\"next_3d_direction_filtered\"``.
         - ``data_source``: ``\"yfinance_direct\"`` to distinguish from
           MCP-based sources.
         - ``prob_up``: Next-day up-move probability in ``[0, 1]``.
         - ``prediction``: ``\"up\"`` if ``prob_up >= 0.5`` else ``\"down\"``.
-        - ``metrics``: Dictionary with at least ``accuracy`` and ``auc`` plus
-          a ``train_test_split`` description.
+        - ``metrics``: Dictionary with ``mean_auc``, ``mean_accuracy``,
+          ``fold_aucs``, ``train_test_split`` (e.g. TimeSeriesSplit_n5), and
+          backward-compatible ``accuracy``/``auc``.
         - ``shap_insights``: Structured SHAP summary with top positive and
           negative features.
         - ``markdown_report``: Chinese Markdown explanation suitable for

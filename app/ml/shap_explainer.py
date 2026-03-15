@@ -162,10 +162,11 @@ def build_markdown_report(
     """
 
     probability_pct = prob_up * 100.0
-    acc = metrics.get("accuracy")
-    auc = metrics.get("auc")
+    acc = metrics.get("mean_accuracy", metrics.get("accuracy"))
+    auc = metrics.get("mean_auc", metrics.get("auc"))
     acc_str = f"{acc:.3f}" if isinstance(acc, (float, int)) else "N/A"
     auc_str = f"{auc:.3f}" if isinstance(auc, (float, int)) else "N/A"
+    validation_note = "5-fold TimeSeriesSplit" if "TimeSeriesSplit" in str(metrics.get("train_test_split", "")) else "Hold-out"
 
     pos_lines: List[str] = []
     for imp in shap_summary.get("top_positive", []) or []:
@@ -191,7 +192,7 @@ def build_markdown_report(
         f"- **模型结论**：在最新可用数据下，模型估计 **下一交易日上涨概率约为 {probability_pct:.1f}%**。"
     )
     lines.append(
-        f"- **历史表现（简单 Hold-out）**：测试集 Accuracy ≈ {acc_str}，AUC ≈ {auc_str} "
+        f"- **历史表现（{validation_note}）**：平均 Accuracy ≈ {acc_str}，AUC ≈ {auc_str} "
         "(仅供参考，不构成收益承诺)。"
     )
     lines.append("")

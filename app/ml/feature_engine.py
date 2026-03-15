@@ -35,6 +35,9 @@ class FeatureConfig:
         bb_std: Standard deviation multiplier for Bollinger Bands.
         volume_ma_window: Window for the moving-average volume used in the
             ``Volume_Ratio`` feature.
+        label_threshold: Threshold epsilon for the 3-day smoothed direction
+            label; samples with |R_future| <= epsilon are dropped (oscillation).
+            Default 0.005 (0.5%).
     """
 
     r1_window: int = 1
@@ -48,6 +51,7 @@ class FeatureConfig:
     bb_window: int = 5
     bb_std: float = 2.0
     volume_ma_window: int = 5
+    label_threshold: float = 0.005
 
 
 def load_ohlcv(ticker: str, period_years: int = 5) -> pd.DataFrame:
@@ -144,6 +148,123 @@ def load_ohlcv(ticker: str, period_years: int = 5) -> pd.DataFrame:
     return df
 
 
+def _download_single_ohlcv(symbol: str, period_str: str) -> pd.DataFrame:
+    """Download OHLCV for a single symbol; return DataFrame with standard column names."""
+    raw = yf.download(
+        symbol,
+        period=period_str,
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+    )
+    if raw.empty:
+        return raw
+    if isinstance(raw.columns, pd.MultiIndex):
+        if symbol in raw.columns.get_level_values(0):
+            raw = raw.xs(symbol, axis=1, level=0)
+        elif symbol in raw.columns.get_level_values(1):
+            raw = raw.xs(symbol, axis=1, level=1)
+        else:
+            raw = raw.droplevel(0, axis=1)
+    rename_map: dict[str, str] = {}
+    for col in raw.columns:
+        key = str(col).lower()
+        if key == "open":
+            rename_map[col] = "Open"
+        elif key == "high":
+            rename_map[col] = "High"
+        elif key == "low":
+            rename_map[col] = "Low"
+        elif key == "close":
+            rename_map[col] = "Close"
+        elif key in {"adj close", "adjclose", "adjusted close"}:
+            rename_map[col] = "Adj Close"
+        elif key == "volume":
+            rename_map[col] = "Volume"
+    if rename_map:
+        raw = raw.rename(columns=rename_map)
+    return raw.sort_index()
+
+
+def load_ohlcv_with_macro(ticker: str, period_years: int = 5) -> pd.DataFrame:
+    """Load main ticker OHLCV plus DXY and VIX, aligned by date (inner join).
+
+    Fetches the primary asset (e.g. BTC-USD), dollar index (DX-Y.NYB) and VIX (^VIX),
+    then merges them on the date index. DXY contributes 1d and 5d returns; VIX
+    contributes raw Close as a volatility environment feature. Rows missing any
+    of these after merge are dropped so downstream feature/label code sees a
+    consistent panel.
+
+    Args:
+        ticker: Main asset symbol (e.g. \"BTC-USD\", \"AAPL\").
+        period_years: Years of history to request (converted to yfinance period).
+
+    Returns:
+        DataFrame indexed by date (ascending) with columns: Open, High, Low,
+        Close, Volume (main), and DXY_Ret_1d, DXY_Ret_5d, VIX.
+    """
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        raise ValueError("ticker is empty.")
+    period_str = f"{max(int(period_years), 1)}y"
+
+    main = load_ohlcv(normalized, period_years=period_years)
+    required = ["Open", "High", "Low", "Close", "Volume"]
+    for c in required:
+        if c not in main.columns:
+            raise ValueError(f"Main ticker missing column: {c}.")
+
+    # DXY: DX-Y.NYB, keep Close and compute returns (only add if fetch succeeded)
+    dxy = _download_single_ohlcv("DX-Y.NYB", period_str)
+    has_dxy = not (dxy.empty or "Close" not in dxy.columns)
+    macro_cols: list[str] = []
+
+    out = main.copy()
+    if has_dxy:
+        dxy_close = dxy["Close"].reindex(main.index)
+        out["DXY_Ret_1d"] = dxy_close.pct_change(1)
+        out["DXY_Ret_5d"] = dxy_close.pct_change(5)
+        macro_cols.extend(["DXY_Ret_1d", "DXY_Ret_5d"])
+
+    # VIX: ^VIX, keep Close (only add if fetch succeeded)
+    vix_raw = _download_single_ohlcv("^VIX", period_str)
+    has_vix = not (vix_raw.empty or "Close" not in vix_raw.columns)
+    if has_vix:
+        out["VIX"] = vix_raw["Close"].reindex(main.index)
+        macro_cols.append("VIX")
+
+    if macro_cols:
+        out = out.dropna(subset=macro_cols)
+    return out
+
+
+def calculate_rolling_zscore(
+    df: pd.DataFrame,
+    column: str,
+    window: int = 60,
+) -> pd.Series:
+    """Compute a rolling z-score for a given column over a fixed window.
+
+    For each time step t this uses the previous ``window`` observations of the
+    series to compute a mean and standard deviation and then returns::
+
+        Z_t = (X_t - mean_window) / std_window
+
+    If there are fewer than ``window`` observations available or the rolling
+    standard deviation is zero, the result is ``NaN`` at that position.
+    """
+
+    series = df[column].astype(float)
+    rolling = series.rolling(window=window, min_periods=window)
+    mu = rolling.mean()
+    sigma = rolling.std(ddof=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (series - mu) / sigma
+    # Avoid inf values where sigma is zero.
+    z = z.where(sigma > 0)
+    return z
+
+
 def _compute_returns_features(df: pd.DataFrame, cfg: FeatureConfig) -> pd.DataFrame:
     """Compute simple return-based features from OHLCV history."""
 
@@ -195,6 +316,42 @@ def _compute_momentum_features(df: pd.DataFrame, cfg: FeatureConfig) -> pd.DataF
         length=cfg.cci_window,
     )
     out["CCI_14"] = cci
+
+    # ADX and directional indicators (trend strength).
+    adx_df = ta.adx(
+        high=out["High"],
+        low=out["Low"],
+        close=out["Close"],
+        length=14,
+    )
+    if adx_df is not None and not adx_df.empty:
+        adx_col = next((c for c in adx_df.columns if "ADX_" in c), None)
+        plus_col = next((c for c in adx_df.columns if "DMP_" in c or "+DI" in c), None)
+        minus_col = next((c for c in adx_df.columns if "DMN_" in c or "-DI" in c), None)
+        if adx_col is None:
+            adx_col = adx_df.columns[0]
+        out["ADX_14"] = adx_df[adx_col]
+        if plus_col is not None:
+            out["PlusDI_14"] = adx_df[plus_col]
+        if minus_col is not None:
+            out["MinusDI_14"] = adx_df[minus_col]
+
+    # Aroon indicator (trend start/exhaustion).
+    aroon_df = ta.aroon(
+        high=out["High"],
+        low=out["Low"],
+        length=14,
+    )
+    if aroon_df is not None and not aroon_df.empty:
+        up_col = next((c for c in aroon_df.columns if "AROONU" in c or "UP_" in c), None)
+        down_col = next((c for c in aroon_df.columns if "AROOND" in c or "DN_" in c), None)
+        if up_col is None:
+            up_col = aroon_df.columns[0]
+        if down_col is None and len(aroon_df.columns) > 1:
+            down_col = aroon_df.columns[1]
+        out["Aroon_Up_14"] = aroon_df[up_col]
+        if down_col is not None:
+            out["Aroon_Down_14"] = aroon_df[down_col]
     return out
 
 
@@ -257,37 +414,29 @@ def build_dataset(
     df: pd.DataFrame,
     cfg: FeatureConfig | None = None,
 ) -> Tuple[pd.DataFrame, pd.Series]:
-    """Transform raw OHLCV data into a supervised learning dataset.
+    """Transform raw OHLCV (optionally with macro columns) into a supervised dataset.
 
-    This function implements the full feature engineering and label
-    construction pipeline described in ``ml_quant.md``:
+    v3 label (ml_quant_optimization_v3.md): predict next-day intraday return
+    (open-to-close) with a dynamic ATR-based threshold to avoid overnight gaps.
 
-    - Derive four groups of technical/relative features:
-      simple returns, momentum oscillators, trend-distance measures, and
-      volatility/volume indicators.
-    - Construct a binary target label representing the next day's direction:
-      ``1`` if ``Close_{t+1} > Close_t`` else ``0``.
-    - Drop all rows that contain missing values in any feature or in the
-      target label. This includes the last row where the future close is not
-      known.
+    - Derive technical features (returns, momentum, trend-distance, volatility/volume).
+    - If present, keep macro columns (DXY_Ret_1d, DXY_Ret_5d, VIX) from ``df``.
+    - Next-day intraday return: R_intraday,t+1 = (Close_{t+1} - Open_{t+1}) / Open_{t+1},
+      aligned to row t via shift(-1). Dynamic threshold (v4): eps_t = 0.25 * ATR_14,t / Close_t.
+    - Label: Y_t = 1 if R_intraday > eps_t, 0 if R_intraday < -eps_t, else NaN.
+      Rows with NaN label (last row or |R_intraday| <= eps_t) are dropped.
+    - ``label_threshold`` in cfg is unused in v3 (dynamic threshold only).
 
     Args:
-        df: Raw OHLCV DataFrame with at least ``Open``, ``High``, ``Low``,
-            ``Close`` and ``Volume`` columns, sorted in ascending date order.
-        cfg: Optional feature configuration. If omitted, sensible defaults
-            matching ``ml_quant.md`` are used.
+        df: DataFrame with at least ``Open``, ``High``, ``Low``, ``Close``,
+            ``Volume``; may include ``DXY_Ret_1d``, ``DXY_Ret_5d``, ``VIX``.
+        cfg: Optional feature config (label_threshold not used for v3 label).
 
     Returns:
-        A tuple ``(X, y)`` where:
-
-        - ``X`` is a DataFrame of engineered features only (no raw absolute
-          prices are required by downstream consumers); and
-        - ``y`` is a pandas Series of binary labels with index aligned to
-          ``X``.
+        ``(X, y)``: feature matrix and binary label series, index-aligned.
 
     Raises:
-        ValueError: If the resulting dataset has too few rows to be useful
-            for model training.
+        ValueError: If fewer than 100 rows remain after label/feature filtering.
     """
 
     if cfg is None:
@@ -296,20 +445,39 @@ def build_dataset(
     if df.empty:
         raise ValueError("Input OHLCV DataFrame is empty.")
 
-    # Build up the feature set step by step.
+    # Build up the feature set step by step (uses main OHLCV only for tech indicators).
     features = df.copy()
     features = _compute_returns_features(features, cfg)
     features = _compute_momentum_features(features, cfg)
     features = _compute_trend_distance_features(features, cfg)
     features = _compute_volatility_volume_features(features, cfg)
+    # Apply rolling Z-Score normalisation to oscillators and distance features.
+    zscore_cols = [
+        "RSI_14",
+        "CCI_14",
+        "MACD_Hist",
+        "Volume_Ratio",
+        "Dist_SMA_20",
+        "Dist_SMA_50",
+    ]
+    for col in zscore_cols:
+        if col in features.columns:
+            features[col] = calculate_rolling_zscore(features, col, window=60)
 
-    # Construct the binary next-day direction label.
-    close = features["Close"]
-    future_close = close.shift(-1)
-    label = (future_close > close).astype(int)
+    # v3: next-day intraday return (open-to-close) and dynamic ATR-based threshold.
+    open_next = features["Open"].shift(-1)
+    close_next = features["Close"].shift(-1)
+    r_intraday = (close_next - open_next) / open_next
+    eps_t = 0.25 * (features["ATR_14"] / features["Close"])
+    label = np.where(
+        r_intraday > eps_t,
+        1,
+        np.where(r_intraday < -eps_t, 0, np.nan),
+    )
 
-    # Combine features and label into a single frame to drop NaNs consistently.
+    # Combine features and label; drop rows with NaN label (no next day or oscillation).
     data = features.assign(label=label)
+    data = data.dropna(subset=["label"])
     data = data.dropna()
 
     if data.shape[0] < 100:
