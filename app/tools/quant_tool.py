@@ -20,8 +20,8 @@ class MlQuantResult(TypedDict, total=False):
     ``ml_quant`` field of ``quant.json`` as documented in ``ml_quant.md``.
 
     Attributes:
-        model: Short identifier for the underlying model family and version
-            (for example, ``\"lightgbm_v1\"``).
+        model: Short identifier for the underlying model family (for example,
+            ``\"lightgbm\"``).
         target: Name of the prediction target (e.g. ``\"next_3d_direction_filtered\"``
             for 3-day smoothed direction with threshold filter).
         data_source: Identifier of the market data source. For the current
@@ -63,7 +63,7 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
 
     normalized = (ticker or "").strip().upper()
     base: MlQuantResult = MlQuantResult(
-        model="lightgbm_v1",
+        model="lightgbm",
         target="next_3d_direction_filtered",
         data_source="yfinance_direct",
     )
@@ -142,7 +142,7 @@ def run_ml_quant_analysis(ticker: str) -> MlQuantResult:
         An ``MlQuantResult`` dictionary that can be serialized directly into
         ``quant.json.ml_quant``. On success it includes keys:
 
-        - ``model``: Currently ``\"lightgbm_v1\"``.
+        - ``model``: Currently ``\"lightgbm\"``.
         - ``target``: e.g. ``\"next_3d_direction_filtered\"``.
         - ``data_source``: ``\"yfinance_direct\"`` to distinguish from
           MCP-based sources.
