@@ -181,7 +181,12 @@ def analyze_reddit_text(asset: str, text: str) -> SocialNlpResult:
                 {"role": "user", "content": f"{system}\n\n{prompt}"}
             ]
         )
-        content = response.content[0].text if response.content else ""
+        # Extract text from content blocks (handle TextBlock, ThinkingBlock, etc.)
+        content = ""
+        if response.content:
+            for block in response.content:
+                if block.type == "text":
+                    content += block.text
     else:
         # LangChain-compatible interface (ChatOpenAI)
         resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
