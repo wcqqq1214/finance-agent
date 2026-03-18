@@ -19,7 +19,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.llm_config import create_llm
 from app.reporting.writer import write_json
-from app.tools.finance_tools import get_stock_data
+from app.tools.local_tools import get_local_stock_data
 from app.tools.quant_tool import run_ml_quant_analysis
 
 
@@ -97,12 +97,15 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
     out_dir = Path(run_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Tool provides compact JSON string of indicators.
-    indicators_json = cast(str, get_stock_data.invoke({"ticker": asset_norm, "period": "3mo"}))
+    # Tool provides compact JSON string of indicators from local database
+    indicators_json = cast(str, get_local_stock_data.invoke({"ticker": asset_norm, "days": 90}))
     try:
         indicators = cast(Dict[str, Any], json.loads(indicators_json))
     except Exception:
         indicators = {"raw": indicators_json}
+
+    # Determine actual data source
+    actual_source = "local_database" if "error" not in indicators else "unknown"
 
     system = (
         "You are a technical analyst. Given an indicators snapshot JSON, produce a strict JSON object with keys:\n"
@@ -144,7 +147,7 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
         "module": "quant",
         "meta": {
             "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "source": "yfinance_mcp",
+            "source": actual_source,  # Dynamic: local_database or unknown
         },
         "trend": cast(TrendLabel, trend),
         "indicators": indicators,

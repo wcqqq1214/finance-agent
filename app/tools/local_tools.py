@@ -43,13 +43,16 @@ def get_local_stock_data(ticker: str, days: int = 90) -> str:
     Returns:
         JSON string containing:
         - ticker: The stock symbol
-        - period_days: Number of days retrieved
+        - period_rows: Number of data points retrieved
         - last_date: Most recent trading date in dataset
         - last_close: Most recent closing price
         - sma_20: 20-day simple moving average
         - macd_line: MACD line (12-day EMA - 26-day EMA)
         - macd_signal: MACD signal line (9-day EMA of MACD)
         - macd_histogram: MACD histogram (MACD line - signal line)
+        - bb_middle: Bollinger Band middle (same as SMA 20)
+        - bb_upper: Bollinger Band upper (middle + 2 * std dev)
+        - bb_lower: Bollinger Band lower (middle - 2 * std dev)
         - price_change_pct: Percentage change over the period
         - error: Error message if data cannot be retrieved
 
@@ -97,6 +100,12 @@ def get_local_stock_data(ticker: str, days: int = 90) -> str:
         # SMA 20
         sma_20 = df["close"].rolling(window=20, min_periods=1).mean().iloc[-1]
 
+        # Bollinger Bands (20, 2)
+        bb_middle = sma_20  # Same as SMA 20
+        bb_std = df["close"].rolling(window=20, min_periods=1).std().iloc[-1]
+        bb_upper = bb_middle + (2 * bb_std)
+        bb_lower = bb_middle - (2 * bb_std)
+
         # MACD (12, 26, 9)
         ema_12 = df["close"].ewm(span=12, adjust=False).mean()
         ema_26 = df["close"].ewm(span=26, adjust=False).mean()
@@ -111,13 +120,16 @@ def get_local_stock_data(ticker: str, days: int = 90) -> str:
 
         result = {
             "ticker": ticker,
-            "period_days": len(df),
+            "period_rows": len(df),
             "last_date": df["date"].iloc[-1],
             "last_close": float(last_close),
             "sma_20": float(sma_20),
             "macd_line": float(macd_line.iloc[-1]),
             "macd_signal": float(macd_signal.iloc[-1]),
             "macd_histogram": float(macd_histogram.iloc[-1]),
+            "bb_middle": float(bb_middle),
+            "bb_upper": float(bb_upper),
+            "bb_lower": float(bb_lower),
             "price_change_pct": float(price_change_pct),
         }
 
