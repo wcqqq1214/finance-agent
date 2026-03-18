@@ -41,8 +41,8 @@ Thumbs.db
 # Log files
 *.log
 
-# Generated reports
-data/reports/
+# Data directory (databases, reports, ChromaDB)
+data/
 
 # Temporary files
 *.tmp
@@ -69,9 +69,3 @@ dmypy.json
 docs/_build/
 site/
 
-# ChromaDB / Vector databases
-chroma_event_db_*/
-*.chroma
-
-# Generated event files
-latest_events.txt

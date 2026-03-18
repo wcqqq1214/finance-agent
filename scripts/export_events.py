@@ -25,7 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from langchain_chroma import Chroma
 from app.embedding_config import create_embeddings
 
-PERSIST_DIR = "./chroma_event_db_stocks"
+PERSIST_DIR = "./data/chroma_event_db_stocks"
 
 
 def export_events(output_file="events.txt", ticker=None, limit=None, latest=False):

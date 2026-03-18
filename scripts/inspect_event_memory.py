@@ -6,7 +6,7 @@ import sys
 from langchain_chroma import Chroma
 
 
-DEFAULT_PERSIST_DIR = "./chroma_event_db_stocks"
+DEFAULT_PERSIST_DIR = "./data/chroma_event_db_stocks"
 # Note: Use GOOGL not GOOG in database
 DEFAULT_COLLECTION_NAME = "event_memory"
 

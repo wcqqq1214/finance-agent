@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.database import get_conn
 from app.rag.build_event_memory import create_memory_document, init_chroma_db
 
-PERSIST_DIR = "./chroma_event_db_stocks"
+PERSIST_DIR = "./data/chroma_event_db_stocks"
 TICKERS = ["NVDA", "MSFT", "TSLA", "AAPL", "GOOGL", "META", "AMZN"]
 
 
