@@ -30,18 +30,20 @@ Implement a theme toggle system for the Finance Agent frontend that defaults to 
 ### Component Structure
 
 ```
-app/
-├── layout.tsx (modified)
-│   └── Wraps children with ThemeProvider
+src/
+├── app/
+│   └── layout.tsx (modified)
+│       └── Wraps children with ThemeProvider
+│       └── Add suppressHydrationWarning to <html>
 ├── components/
 │   ├── layout/
 │   │   ├── Navbar.tsx (modified)
-│   │   │   └── Adds ThemeToggle button
+│   │   │   └── Adds ThemeToggle button to right side
 │   │   └── ThemeToggle.tsx (new)
 │   │       └── Theme switch button component
 │   └── providers/
 │       └── ThemeProvider.tsx (new)
-│           └── Wraps next-themes provider
+│           └── Client component wrapping next-themes provider
 ```
 
 ### Data Flow
@@ -68,11 +70,12 @@ app/
 
 ### Dependencies
 
-- **next-themes** (^0.3.0): Theme management library for Next.js
+- **next-themes** (latest): Theme management library for Next.js
   - Handles SSR/CSR synchronization
   - Provides React hooks for theme state
   - Manages localStorage persistence
   - Prevents FOUC with inline script injection
+  - Compatible with Next.js 16 and Tailwind CSS v4
 
 ### Configuration
 
@@ -91,37 +94,53 @@ app/
 
 **ThemeToggle Component**:
 - Uses `useTheme()` hook from next-themes
+  - Returns: `{ theme, setTheme, resolvedTheme, systemTheme }`
+  - Use `resolvedTheme` to get actual theme when `theme === 'system'`
 - Displays icon based on current resolved theme:
   - Dark mode → Sun icon (clicking switches to light)
   - Light mode → Moon icon (clicking switches to dark)
 - Icons from `lucide-react` (already installed)
-- Styled with shadcn/ui Button component for consistency
+- Styled as icon button for consistency
 - Includes hover effects and smooth transitions
+- Must be a client component (`'use client'` directive)
 
 **Button Behavior**:
-- Click handler: `setTheme(theme === 'dark' ? 'light' : 'dark')`
+- Click handler: `setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')`
 - This explicit setting overrides system preference
-- Aria-label: "切换主题" for accessibility
+- Aria-label: "切换到浅色模式" or "切换到暗黑模式" (describes the action, not just "toggle theme")
 
 ### Integration Points
 
 **layout.tsx Changes**:
 - Import and wrap children with ThemeProvider
-- No changes to existing `<html>` structure
-- ThemeProvider handles class injection
+- Add `suppressHydrationWarning` to `<html>` tag to prevent Next.js hydration warnings
+- Example: `<html lang="en" suppressHydrationWarning>`
+- ThemeProvider handles class injection via inline script
 
 **Navbar.tsx Changes**:
 - Add ThemeToggle component to right side of navbar
-- Position using flexbox: `justify-between` with toggle on the right
+- The navbar already uses `justify-between`, add toggle to the right section
 - Maintains existing navigation items on the left
+
+**ThemeProvider Implementation**:
+- Must use `'use client'` directive (uses React context and hooks)
+- Wraps the next-themes `ThemeProvider` component
+- This doesn't affect SSR - theme is still applied server-side via inline script
 
 ### CSS Compatibility
 
-**Existing Styles** (globals.css):
+**Existing Styles** (src/app/globals.css):
 - Already defines `:root` variables for light theme
 - Already defines `.dark` class variables for dark theme
 - Uses oklch color space for smooth transitions
+- Uses Tailwind CSS v4 syntax: `@custom-variant dark (&:is(.dark *));`
 - No modifications needed to existing CSS
+
+**Tailwind CSS v4 Compatibility**:
+- Tailwind v4 uses CSS-based configuration (no config file)
+- The custom variant `@custom-variant dark (&:is(.dark *));` works with next-themes
+- next-themes adds/removes `.dark` class on `<html>` element
+- The custom variant selector matches any element inside `.dark` parent
 
 **Theme Switching Mechanism**:
 - next-themes adds/removes `.dark` class on `<html>`
@@ -131,8 +150,10 @@ app/
 ## Error Handling
 
 1. **localStorage Unavailable**: next-themes gracefully falls back to in-memory storage
-2. **System Theme Detection Fails**: Defaults to light theme
-3. **Hydration Mismatch**: next-themes suppresses hydration warnings with proper SSR handling
+2. **localStorage Quota Exceeded**: Falls back to in-memory storage
+3. **System Theme Detection Fails**: Defaults to light theme
+4. **Hydration Mismatch**: next-themes suppresses hydration warnings with proper SSR handling
+5. **JavaScript Disabled**: App defaults to light theme (CSS `:root` variables)
 
 ## Testing Strategy
 
@@ -155,23 +176,30 @@ app/
    - [ ] Clear localStorage → app follows system theme again
 
 4. **Accessibility**:
-   - [ ] Button has proper aria-label
+   - [ ] Button has proper aria-label describing the action
    - [ ] Keyboard accessible (Tab + Enter)
    - [ ] Screen reader announces button purpose
+   - [ ] Focus visible indicator present
 
 5. **Cross-Browser**:
    - [ ] Works in Chrome, Firefox, Safari, Edge
    - [ ] Works on mobile browsers
 
+6. **Edge Cases**:
+   - [ ] Rapid theme switching doesn't cause issues
+   - [ ] localStorage quota exceeded handled gracefully
+   - [ ] JavaScript disabled shows default light theme
+
 ## Implementation Steps
 
 1. Install next-themes package
-2. Create ThemeProvider wrapper component
-3. Create ThemeToggle button component
-4. Modify layout.tsx to include ThemeProvider
-5. Modify Navbar.tsx to include ThemeToggle
-6. Test all scenarios from checklist
-7. Commit changes
+2. Create `src/components/providers/` directory
+3. Create ThemeProvider wrapper component
+4. Create ThemeToggle button component in `src/components/layout/`
+5. Modify layout.tsx to include ThemeProvider and suppressHydrationWarning
+6. Modify Navbar.tsx to include ThemeToggle on the right side
+7. Test all scenarios from checklist
+8. Commit changes
 
 ## Future Enhancements (Out of Scope)
 
