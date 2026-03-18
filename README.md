@@ -157,6 +157,77 @@ Automated daily news collection and analysis:
 uv run python scripts/daily_harvester.py
 ```
 
+## Web Frontend (NEW)
+
+The project now includes a modern web interface built with Next.js 15, React 18, and TypeScript.
+
+### Frontend Features
+
+- **Interactive Query Interface**: Submit stock analysis requests through a web UI
+- **Report Dashboard**: Browse and view generated analysis reports
+- **System Monitoring**: Check the health of backend services and MCP servers
+- **Real-time Updates**: Stream analysis progress via Server-Sent Events (SSE)
+
+### Quick Start
+
+**Option 1: Start all services at once (recommended)**
+
+```bash
+bash scripts/start_all.sh
+```
+
+This will start:
+- MCP servers (ports 8000, 8001)
+- FastAPI backend (port 8080)
+- Next.js frontend (port 3000)
+
+**Option 2: Start services individually**
+
+```bash
+# Terminal 1: MCP servers
+bash scripts/start_mcp_servers.sh
+
+# Terminal 2: FastAPI backend
+bash scripts/start_api.sh
+
+# Terminal 3: Frontend
+bash scripts/start_frontend.sh
+```
+
+### Access the Application
+
+- **Frontend**: http://localhost:3000
+- **API**: http://localhost:8080
+- **API Documentation**: http://localhost:8080/docs (Swagger UI)
+
+### Frontend Development
+
+The frontend is located in the `frontend/` directory:
+
+```bash
+cd frontend
+
+# Install dependencies (first time only)
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
+
+### Environment Configuration
+
+Frontend environment variables are configured in `frontend/.env.local`:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8080
+```
+
 ## Verify tools (optional)
 
 Market data and news tools (requires MCP server running):

@@ -1,0 +1,73 @@
+from fastapi import APIRouter, HTTPException
+from pathlib import Path
+import json
+from typing import List
+
+from ..models import Report
+
+router = APIRouter()
+
+# Path to reports directory
+REPORTS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "reports"
+
+
+@router.get("/reports", response_model=List[Report])
+async def get_reports():
+    """Get all available reports."""
+    if not REPORTS_DIR.exists():
+        return []
+
+    reports = []
+    for report_dir in sorted(REPORTS_DIR.iterdir(), reverse=True):
+        if not report_dir.is_dir():
+            continue
+
+        # Look for report.json in the directory
+        report_file = report_dir / "report.json"
+        if not report_file.exists():
+            continue
+
+        try:
+            with open(report_file, "r") as f:
+                data = json.load(f)
+                reports.append(
+                    Report(
+                        id=report_dir.name,
+                        symbol=data.get("symbol", "UNKNOWN"),
+                        timestamp=data.get("timestamp", ""),
+                        quant_analysis=data.get("quant_analysis"),
+                        news_sentiment=data.get("news_sentiment"),
+                        social_sentiment=data.get("social_sentiment"),
+                    )
+                )
+        except Exception as e:
+            # Skip invalid reports
+            continue
+
+    return reports
+
+
+@router.get("/reports/{report_id}", response_model=Report)
+async def get_report(report_id: str):
+    """Get a specific report by ID."""
+    report_dir = REPORTS_DIR / report_id
+    if not report_dir.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    report_file = report_dir / "report.json"
+    if not report_file.exists():
+        raise HTTPException(status_code=404, detail="Report file not found")
+
+    try:
+        with open(report_file, "r") as f:
+            data = json.load(f)
+            return Report(
+                id=report_id,
+                symbol=data.get("symbol", "UNKNOWN"),
+                timestamp=data.get("timestamp", ""),
+                quant_analysis=data.get("quant_analysis"),
+                news_sentiment=data.get("news_sentiment"),
+                social_sentiment=data.get("social_sentiment"),
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading report: {str(e)}")

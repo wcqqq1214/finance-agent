@@ -69,3 +69,10 @@ dmypy.json
 docs/_build/
 site/
 
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.vercel
+
