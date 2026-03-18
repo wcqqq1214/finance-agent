@@ -23,6 +23,48 @@
 
 ---
 
+### Task 0: Pre-Implementation Verification
+
+**Files:**
+- Read: `frontend/package.json`
+- Read: `frontend/src/app/globals.css`
+- Read: `frontend/src/components/layout/Navbar.tsx`
+
+- [ ] **Step 1: Verify lucide-react is installed**
+
+```bash
+cd /home/wcqqq21/finance-agent/frontend
+npm list lucide-react
+```
+
+Expected: Shows lucide-react is already installed
+
+- [ ] **Step 2: Verify dark mode CSS exists**
+
+```bash
+grep -A 5 "\.dark {" src/app/globals.css
+```
+
+Expected: Shows dark mode CSS variables defined
+
+- [ ] **Step 3: Verify Navbar structure**
+
+```bash
+cat src/components/layout/Navbar.tsx | grep -A 2 "justify-between"
+```
+
+Expected: Shows existing navbar layout structure
+
+- [ ] **Step 4: Verify Next.js version**
+
+```bash
+npm list next
+```
+
+Expected: Shows Next.js 16.x.x
+
+---
+
 ### Task 1: Install Dependencies
 
 **Files:**
@@ -31,7 +73,7 @@
 - [ ] **Step 1: Install next-themes package**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npm install next-themes
 ```
 
@@ -48,7 +90,8 @@ Expected: Shows next-themes version installed
 - [ ] **Step 3: Commit dependency**
 
 ```bash
-git add package.json package-lock.json
+cd /home/wcqqq21/finance-agent
+git add frontend/package.json frontend/package-lock.json
 git commit -m "chore: add next-themes for theme management"
 ```
 
@@ -62,12 +105,12 @@ git commit -m "chore: add next-themes for theme management"
 - [ ] **Step 1: Create providers directory**
 
 ```bash
-mkdir -p frontend/src/components/providers
+mkdir -p /home/wcqqq21/finance-agent/frontend/src/components/providers
 ```
 
 - [ ] **Step 2: Create ThemeProvider component**
 
-Create `frontend/src/components/providers/ThemeProvider.tsx`:
+Create `/home/wcqqq21/finance-agent/frontend/src/components/providers/ThemeProvider.tsx`:
 
 ```typescript
 'use client';
@@ -83,7 +126,7 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
 - [ ] **Step 3: Verify TypeScript compilation**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npx tsc --noEmit
 ```
 
@@ -92,7 +135,8 @@ Expected: No TypeScript errors
 - [ ] **Step 4: Commit ThemeProvider**
 
 ```bash
-git add src/components/providers/ThemeProvider.tsx
+cd /home/wcqqq21/finance-agent
+git add frontend/src/components/providers/ThemeProvider.tsx
 git commit -m "feat: add ThemeProvider wrapper component"
 ```
 
@@ -105,7 +149,7 @@ git commit -m "feat: add ThemeProvider wrapper component"
 
 - [ ] **Step 1: Create ThemeToggle component**
 
-Create `frontend/src/components/layout/ThemeToggle.tsx`:
+Create `/home/wcqqq21/finance-agent/frontend/src/components/layout/ThemeToggle.tsx`:
 
 ```typescript
 'use client';
@@ -155,7 +199,7 @@ export function ThemeToggle() {
 - [ ] **Step 2: Verify TypeScript compilation**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npx tsc --noEmit
 ```
 
@@ -164,7 +208,8 @@ Expected: No TypeScript errors
 - [ ] **Step 3: Commit ThemeToggle**
 
 ```bash
-git add src/components/layout/ThemeToggle.tsx
+cd /home/wcqqq21/finance-agent
+git add frontend/src/components/layout/ThemeToggle.tsx
 git commit -m "feat: add ThemeToggle button component"
 ```
 
@@ -177,7 +222,7 @@ git commit -m "feat: add ThemeToggle button component"
 
 - [ ] **Step 1: Add ThemeProvider to layout**
 
-Modify `frontend/src/app/layout.tsx`:
+Modify `/home/wcqqq21/finance-agent/frontend/src/app/layout.tsx`:
 
 ```typescript
 import type { Metadata } from "next";
@@ -234,7 +279,7 @@ export default function RootLayout({
 - [ ] **Step 2: Verify TypeScript compilation**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npx tsc --noEmit
 ```
 
@@ -243,7 +288,8 @@ Expected: No TypeScript errors
 - [ ] **Step 3: Commit layout changes**
 
 ```bash
-git add src/app/layout.tsx
+cd /home/wcqqq21/finance-agent
+git add frontend/src/app/layout.tsx
 git commit -m "feat: integrate ThemeProvider in root layout"
 ```
 
@@ -256,7 +302,7 @@ git commit -m "feat: integrate ThemeProvider in root layout"
 
 - [ ] **Step 1: Add ThemeToggle to Navbar**
 
-Modify `frontend/src/components/layout/Navbar.tsx`:
+Modify `/home/wcqqq21/finance-agent/frontend/src/components/layout/Navbar.tsx`:
 
 ```typescript
 'use client';
@@ -312,7 +358,7 @@ export function Navbar() {
 - [ ] **Step 2: Verify TypeScript compilation**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npx tsc --noEmit
 ```
 
@@ -321,13 +367,46 @@ Expected: No TypeScript errors
 - [ ] **Step 3: Commit Navbar changes**
 
 ```bash
-git add src/components/layout/Navbar.tsx
+cd /home/wcqqq21/finance-agent
+git add frontend/src/components/layout/Navbar.tsx
 git commit -m "feat: add ThemeToggle button to Navbar"
 ```
 
 ---
 
-### Task 6: Manual Testing
+### Task 6: Verify Production Build
+
+**Files:**
+- Build: All components
+
+- [ ] **Step 1: Run production build**
+
+```bash
+cd /home/wcqqq21/finance-agent/frontend
+npm run build
+```
+
+Expected: Build completes successfully with no errors
+
+- [ ] **Step 2: Check for hydration warnings**
+
+Review build output for any hydration mismatch warnings.
+
+Expected: No hydration warnings (suppressHydrationWarning should prevent them)
+
+- [ ] **Step 3: Test production build locally**
+
+```bash
+npm run start
+```
+
+Visit http://localhost:3000 and verify theme toggle works in production mode.
+
+Expected: Theme toggle functions correctly in production build
+
+---
+
+### Task 7: Manual Testing - Basic Functionality
 
 **Files:**
 - Test: All components in browser
@@ -335,13 +414,13 @@ git commit -m "feat: add ThemeToggle button to Navbar"
 - [ ] **Step 1: Start development server**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npm run dev
 ```
 
 Expected: Server starts on http://localhost:3000
 
-- [ ] **Step 2: Test first visit behavior**
+- [ ] **Step 2: Test first visit with dark system theme**
 
 1. Open browser DevTools → Application → Local Storage
 2. Clear `finance-agent-theme` key if exists
@@ -351,18 +430,35 @@ Expected: Server starts on http://localhost:3000
 
 Expected: Dark mode applied immediately
 
-- [ ] **Step 3: Test manual toggle**
+- [ ] **Step 3: Test first visit with light system theme**
 
-1. Click theme toggle button in navbar
-2. Verify: Theme switches to light mode
-3. Verify: Icon changes from sun to moon
-4. Verify: Smooth transition
-5. Click again
-6. Verify: Theme switches back to dark mode
+1. Clear localStorage `finance-agent-theme`
+2. Set OS to light mode
+3. Refresh page
+4. Verify: App loads in light mode
 
-Expected: Toggle works smoothly in both directions
+Expected: Light mode applied immediately
 
-- [ ] **Step 4: Test persistence**
+- [ ] **Step 4: Test manual toggle from dark to light**
+
+1. Set system to dark mode, clear localStorage
+2. Visit page (should be dark)
+3. Click theme toggle button
+4. Verify: Theme switches to light mode
+5. Verify: Icon changes from sun to moon
+6. Verify: Smooth transition
+
+Expected: Toggle works smoothly
+
+- [ ] **Step 5: Test manual toggle from light to dark**
+
+1. Click toggle again
+2. Verify: Theme switches back to dark mode
+3. Verify: Icon changes from moon to sun
+
+Expected: Toggle works in both directions
+
+- [ ] **Step 6: Test persistence**
 
 1. Set theme to light mode
 2. Refresh page
@@ -371,7 +467,7 @@ Expected: Toggle works smoothly in both directions
 
 Expected: Preference persists across refreshes
 
-- [ ] **Step 5: Test system theme independence**
+- [ ] **Step 7: Test system theme independence**
 
 1. Manually set theme to light
 2. Change OS to dark mode
@@ -380,7 +476,7 @@ Expected: Preference persists across refreshes
 
 Expected: Manual preference overrides system
 
-- [ ] **Step 6: Test system theme following**
+- [ ] **Step 8: Test system theme following after clear**
 
 1. Clear localStorage `finance-agent-theme`
 2. Set OS to light mode
@@ -392,18 +488,54 @@ Expected: Manual preference overrides system
 
 Expected: Follows system when no manual preference
 
-- [ ] **Step 7: Test accessibility**
+---
+
+### Task 8: Manual Testing - Accessibility
+
+**Files:**
+- Test: Accessibility features
+
+- [ ] **Step 1: Test keyboard navigation**
 
 1. Tab to theme toggle button
 2. Verify: Focus ring visible
 3. Press Enter
 4. Verify: Theme toggles
-5. Use screen reader
-6. Verify: Announces "切换到浅色模式" or "切换到暗黑模式"
 
-Expected: Fully keyboard accessible with proper labels
+Expected: Fully keyboard accessible
 
-- [ ] **Step 8: Test rapid switching**
+- [ ] **Step 2: Test aria-label in dark mode**
+
+1. Set theme to dark mode
+2. Inspect theme toggle button
+3. Verify: aria-label="切换到浅色模式"
+
+Expected: Correct aria-label for current state
+
+- [ ] **Step 3: Test aria-label in light mode**
+
+1. Set theme to light mode
+2. Inspect theme toggle button
+3. Verify: aria-label="切换到暗黑模式"
+
+Expected: Correct aria-label for current state
+
+- [ ] **Step 4: Test with screen reader (if available)**
+
+1. Enable screen reader
+2. Navigate to theme toggle
+3. Verify: Announces correct action
+
+Expected: Screen reader announces button purpose
+
+---
+
+### Task 9: Manual Testing - Edge Cases
+
+**Files:**
+- Test: Edge case scenarios
+
+- [ ] **Step 1: Test rapid switching**
 
 1. Click toggle button rapidly 10 times
 2. Verify: No errors in console
@@ -411,15 +543,57 @@ Expected: Fully keyboard accessible with proper labels
 
 Expected: Handles rapid clicks gracefully
 
-- [ ] **Step 9: Document test results**
+- [ ] **Step 2: Test with JavaScript disabled**
 
-Create a test report noting any issues found during manual testing.
+1. Disable JavaScript in browser
+2. Visit page
+3. Verify: Shows default light theme (CSS :root)
+
+Expected: Graceful degradation to light theme
+
+- [ ] **Step 3: Test localStorage quota (simulated)**
+
+Note: next-themes automatically handles localStorage failures by falling back to in-memory storage. Verify no errors in console if localStorage is unavailable.
+
+Expected: No console errors, theme works in-memory
+
+- [ ] **Step 4: Document any issues found**
+
+If any bugs or issues were discovered during testing, document them clearly with steps to reproduce.
 
 Expected: All tests pass or issues documented for fixing
 
 ---
 
-### Task 7: Final Commit and Cleanup
+### Task 10: Fix Any Issues Found
+
+**Files:**
+- Fix: Any files with issues discovered during testing
+
+- [ ] **Step 1: Review documented issues**
+
+Review any issues found in Task 7-9.
+
+- [ ] **Step 2: Fix each issue separately**
+
+For each issue:
+1. Fix the code
+2. Test the fix
+3. Commit with descriptive message: `fix: [specific issue description]`
+
+Expected: Each fix is committed separately with clear message
+
+- [ ] **Step 3: Re-run affected tests**
+
+After fixes, re-run the relevant test scenarios to verify fixes work.
+
+Expected: All tests now pass
+
+---
+
+### Task 11: Final Verification and Cleanup
+
+### Task 11: Final Verification and Cleanup
 
 **Files:**
 - All modified files
@@ -427,7 +601,7 @@ Expected: All tests pass or issues documented for fixing
 - [ ] **Step 1: Run final TypeScript check**
 
 ```bash
-cd frontend
+cd /home/wcqqq21/finance-agent/frontend
 npx tsc --noEmit
 ```
 
@@ -436,32 +610,60 @@ Expected: No errors
 - [ ] **Step 2: Run linter**
 
 ```bash
-cd frontend
 npm run lint
 ```
 
-Expected: No linting errors (or fix any that appear)
+Expected: No linting errors
 
-- [ ] **Step 3: Verify all changes committed**
+- [ ] **Step 3: Check for console.log statements**
 
 ```bash
+cd /home/wcqqq21/finance-agent/frontend
+grep -r "console\.log" src/components/providers/ src/components/layout/ThemeToggle.tsx
+```
+
+Expected: No console.log statements found (or only intentional ones)
+
+- [ ] **Step 4: Verify all imports are used**
+
+Review each new file to ensure no unused imports.
+
+Expected: All imports are necessary
+
+- [ ] **Step 5: Verify all changes committed**
+
+```bash
+cd /home/wcqqq21/finance-agent
 git status
 ```
 
 Expected: Working tree clean
 
-- [ ] **Step 4: Create summary commit if needed**
-
-If there were any fixes during testing:
+- [ ] **Step 6: Review commit history**
 
 ```bash
-git add .
-git commit -m "fix: address theme toggle testing issues"
+git log --oneline -10
 ```
 
-- [ ] **Step 5: Update plan status**
+Expected: Clear, descriptive commit messages for all changes
 
-Mark this plan as completed in the plan document.
+---
+
+## Rollback Instructions
+
+If critical issues are found and you need to rollback:
+
+```bash
+cd /home/wcqqq21/finance-agent
+# Count commits made during this implementation
+git log --oneline | head -10
+
+# Rollback N commits (replace N with actual number)
+git reset --hard HEAD~N
+
+# Or rollback to specific commit
+git reset --hard <commit-hash>
+```
 
 ---
 
