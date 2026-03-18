@@ -20,7 +20,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.llm_config import create_llm
 from app.polymarket.tools import search_polymarket_predictions
 from app.reporting.writer import write_json
-from app.tools.finance_tools import search_financial_news
+from app.tools.local_tools import search_realtime_news
 
 
 load_dotenv()
@@ -98,8 +98,14 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
     out_dir = Path(run_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Fetch sources first (tool call, deterministic).
-    items = search_financial_news.invoke({"query": asset_norm, "limit": 8})
+    # Fetch sources using realtime search (Tavily first, DuckDuckGo fallback)
+    search_result = search_realtime_news.invoke({"query": asset_norm, "limit": 8})
+    search_data = json.loads(search_result) if isinstance(search_result, str) else search_result
+
+    # Extract actual data source used (tavily or duckduckgo)
+    actual_source = search_data.get("source", "unknown")
+
+    # Extract articles from search result
     sources = [
         {
             "title": i.get("title"),
@@ -108,7 +114,7 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
             "published_time": i.get("published_time"),
             "snippet": i.get("snippet"),
         }
-        for i in (items or [])
+        for i in search_data.get("articles", [])
         if isinstance(i, dict)
     ]
 
@@ -157,7 +163,7 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
         "module": "news",
         "meta": {
             "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "source": "duckduckgo",
+            "source": actual_source,  # Dynamic: tavily or duckduckgo
             "time_window_days": 7,
             "polymarket_enabled": polymarket_markets is not None and polymarket_markets.get("markets_found", 0) > 0,
         },
