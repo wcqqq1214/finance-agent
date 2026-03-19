@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { StockSelector } from '@/components/stock/StockSelector';
 import { ChatPanel } from '@/components/chat/ChatPanel';
+import { KLineChart } from '@/components/chart/KLineChart';
 
 export default function Home() {
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
@@ -19,11 +20,9 @@ export default function Home() {
           />
         </div>
 
-        {/* Bottom: K-line chart placeholder (60% height) */}
-        <div className="flex-1 border rounded-lg flex items-center justify-center text-muted-foreground text-sm">
-          {selectedStock
-            ? `${selectedStock} K-Line Chart (coming soon)`
-            : 'Select a stock to view chart'}
+        {/* Bottom: K-line chart (60% height) */}
+        <div className="flex-1 overflow-hidden">
+          <KLineChart selectedStock={selectedStock} />
         </div>
       </div>
 
