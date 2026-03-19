@@ -65,7 +65,7 @@ export function StockSelector({ selectedStock, onStockSelect }: StockSelectorPro
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          Magnificent Seven
+          Stocks
         </h2>
         <Button
           variant="ghost"
