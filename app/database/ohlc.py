@@ -1,0 +1,108 @@
+"""OHLC data operations for the database."""
+
+import sqlite3
+import logging
+from typing import List, Dict, Optional
+from datetime import datetime
+
+from app.database.schema import get_conn
+
+logger = logging.getLogger(__name__)
+
+
+def get_ohlc(symbol: str, start: str, end: str) -> List[Dict]:
+    """Query OHLC data from database.
+
+    Args:
+        symbol: Stock symbol (e.g., 'AAPL')
+        start: Start date in YYYY-MM-DD format
+        end: End date in YYYY-MM-DD format
+
+    Returns:
+        List of OHLC records as dictionaries
+    """
+    conn = get_conn()
+    query = """
+        SELECT date, open, high, low, close, volume
+        FROM ohlc
+        WHERE symbol = ? AND date >= ? AND date <= ?
+        ORDER BY date ASC
+    """
+    rows = conn.execute(query, (symbol.upper(), start, end)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def upsert_ohlc(symbol: str, data: List[Dict]):
+    """Insert or update OHLC data (batch operation).
+
+    Args:
+        symbol: Stock symbol
+        data: List of dicts with keys: date, open, high, low, close, volume
+    """
+    if not data:
+        return
+
+    conn = get_conn()
+    conn.executemany("""
+        INSERT INTO ohlc (symbol, date, open, high, low, close, volume)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, date) DO NOTHING
+    """, [(symbol.upper(), d['date'], d['open'], d['high'], d['low'], d['close'], d['volume'])
+          for d in data])
+    conn.commit()
+    conn.close()
+    logger.info(f"Upserted {len(data)} records for {symbol}")
+
+
+def update_metadata(symbol: str, start: str, end: str):
+    """Update metadata after data sync.
+
+    Args:
+        symbol: Stock symbol
+        start: Data start date
+        end: Data end date
+    """
+    conn = get_conn()
+
+    # Check if data_metadata table exists, if not create it
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS data_metadata (
+            symbol TEXT PRIMARY KEY,
+            last_update TEXT,
+            data_start TEXT,
+            data_end TEXT
+        )
+    """)
+
+    conn.execute("""
+        INSERT INTO data_metadata (symbol, last_update, data_start, data_end)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+            last_update = excluded.last_update,
+            data_end = excluded.data_end
+    """, (symbol.upper(), datetime.now().isoformat(), start, end))
+    conn.commit()
+    conn.close()
+
+
+def get_metadata(symbol: str) -> Optional[Dict]:
+    """Get metadata for a symbol."""
+    conn = get_conn()
+
+    # Check if data_metadata table exists
+    table_exists = conn.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='data_metadata'
+    """).fetchone()
+
+    if not table_exists:
+        conn.close()
+        return None
+
+    row = conn.execute(
+        "SELECT * FROM data_metadata WHERE symbol = ?",
+        (symbol.upper(),)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
