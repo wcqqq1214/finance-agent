@@ -1,0 +1,42 @@
+'use client';
+
+import { Moon, Sun } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { useEffect, useState } from 'react';
+
+export function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch by only rendering after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <button
+        className="inline-flex items-center justify-center rounded-md p-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+        aria-label="切换主题"
+      >
+        <Sun className="h-5 w-5" />
+      </button>
+    );
+  }
+
+  const isDark = resolvedTheme === 'dark';
+
+  return (
+    <button
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      className="inline-flex items-center justify-center rounded-md p-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+      aria-label={isDark ? '切换到浅色模式' : '切换到暗黑模式'}
+    >
+      {isDark ? (
+        <Sun className="h-5 w-5 transition-transform hover:rotate-12" />
+      ) : (
+        <Moon className="h-5 w-5 transition-transform hover:-rotate-12" />
+      )}
+    </button>
+  );
+}
