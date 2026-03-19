@@ -1,7 +1,8 @@
 from fastapi import APIRouter
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import asyncio
 import logging
+from typing import Dict, Tuple
 
 from ..models.schemas import StockQuote, StockQuotesResponse
 
@@ -18,6 +19,10 @@ MAGNIFICENT_SEVEN = {
     "TSLA": "Tesla Inc.",
 }
 
+# Quote cache (symbol -> (quote, timestamp))
+_QUOTE_CACHE: Dict[str, Tuple[StockQuote, datetime]] = {}
+QUOTE_CACHE_TTL = 10  # seconds
+
 
 async def _fetch_single_quote(symbol: str) -> StockQuote:
     """Fetch quote for a single symbol, returning error field on failure."""
@@ -25,13 +30,20 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
     from app.mcp_client.finance_client import _call_get_us_stock_quote_async
     from app.polygon.client import fetch_ticker_details
 
+    # Check cache first
+    if symbol in _QUOTE_CACHE:
+        cached_quote, cached_time = _QUOTE_CACHE[symbol]
+        if datetime.now() - cached_time < timedelta(seconds=QUOTE_CACHE_TTL):
+            logger.debug(f"Returning cached quote for {symbol}")
+            return cached_quote
+
     url = os.environ.get("MCP_MARKET_DATA_URL", "http://127.0.0.1:8000/mcp")
     name = MAGNIFICENT_SEVEN.get(symbol, symbol)
 
     try:
         data = await _call_get_us_stock_quote_async(symbol, url)
         logo = await asyncio.to_thread(fetch_ticker_details, symbol)
-        return StockQuote(
+        quote = StockQuote(
             symbol=symbol,
             name=name,
             price=data.get("price"),
@@ -40,9 +52,14 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
             logo=logo,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+        # Cache the successful result
+        _QUOTE_CACHE[symbol] = (quote, datetime.now())
+        return quote
     except Exception as exc:
         logger.warning(f"Failed to fetch quote for {symbol}: {exc}")
-        return StockQuote(symbol=symbol, name=name, error=str(exc))
+        error_quote = StockQuote(symbol=symbol, name=name, error=str(exc))
+        # Don't cache errors
+        return error_quote
 
 
 @router.get("/stocks/quotes", response_model=StockQuotesResponse)

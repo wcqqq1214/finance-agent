@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StockCard } from './StockCard';
 import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 import type { StockInfo } from '@/lib/types';
 
 const SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA'];
@@ -20,6 +21,7 @@ export function StockSelector({ selectedStock, onStockSelect }: StockSelectorPro
   const [stocks, setStocks] = useState<StockInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { toast } = useToast();
 
   const fetchQuotes = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -28,11 +30,16 @@ export function StockSelector({ selectedStock, onStockSelect }: StockSelectorPro
       setStocks(data.quotes);
     } catch (err) {
       console.error('Failed to fetch stock quotes:', err);
+      toast({
+        title: 'Failed to refresh stock data',
+        description: 'Unable to fetch latest quotes',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchQuotes();

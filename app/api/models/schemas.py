@@ -61,10 +61,13 @@ class StockQuote(BaseModel):
     name: str
     price: Optional[float] = None
     change: Optional[float] = None
-    change_percent: Optional[float] = None
+    change_percent: Optional[float] = Field(None, alias="changePercent")
     logo: Optional[str] = None
     timestamp: Optional[str] = None
     error: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class StockQuotesResponse(BaseModel):

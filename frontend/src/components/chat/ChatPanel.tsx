@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,13 @@ export function ChatPanel({ selectedStock }: ChatPanelProps) {
   const [submittedSymbol, setSubmittedSymbol] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
   const { toast } = useToast();
+
+  // Cleanup EventSource on unmount
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
 
   const placeholder = selectedStock
     ? `Ask about ${selectedStock}... (e.g., technical analysis, recent news)`

@@ -9,6 +9,8 @@ from .schemas import (
     ErrorResponse,
     SettingsResponse,
     SettingsRequest,
+    StockQuote,
+    StockQuotesResponse,
 )
 
 __all__ = [
@@ -21,4 +23,6 @@ __all__ = [
     "ErrorResponse",
     "SettingsResponse",
     "SettingsRequest",
+    "StockQuote",
+    "StockQuotesResponse",
 ]
