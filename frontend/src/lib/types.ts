@@ -94,3 +94,28 @@ export interface StockInfo {
 export interface StockQuotesResponse {
   quotes: StockInfo[];
 }
+
+// OHLC Data Types
+export interface OHLCRecord {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface OHLCResponse {
+  symbol: string;
+  data: OHLCRecord[];
+}
+
+export interface DataStatusResponse {
+  symbol: string;
+  last_update: string | null;
+  data_start: string | null;
+  data_end: string | null;
+  total_records: number;
+}
+
+export type TimeRange = '1M' | '3M' | '6M' | '1Y' | '5Y';
