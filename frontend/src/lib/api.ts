@@ -7,6 +7,8 @@ import type {
   SettingsResponse,
   SettingsRequest,
   StockQuotesResponse,
+  OHLCResponse,
+  DataStatusResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -98,6 +100,21 @@ export const api = {
     fetchAPI<StockQuotesResponse>(
       `/api/stocks/quotes?symbols=${symbols.join(',')}`
     ),
+
+  // Get OHLC data for a stock
+  getOHLC: (symbol: string, start?: string, end?: string) => {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const query = params.toString();
+    return fetchAPI<OHLCResponse>(
+      `/api/stocks/${symbol}/ohlc${query ? `?${query}` : ''}`
+    );
+  },
+
+  // Get data status for a stock
+  getDataStatus: (symbol: string) =>
+    fetchAPI<DataStatusResponse>(`/api/stocks/${symbol}/data-status`),
 };
 
 export { APIError };
