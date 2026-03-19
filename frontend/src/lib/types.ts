@@ -43,7 +43,7 @@ export interface AnalyzeResponse {
 }
 
 export interface SSEEvent {
-  type: 'status' | 'progress' | 'result' | 'error';
+  type: 'progress' | 'result' | 'error';
   message?: string;
   step?: string;
   done?: boolean;
@@ -64,4 +64,33 @@ export interface ServiceStatus {
 export interface HealthResponse {
   status: string;
   timestamp: string;
+}
+
+export interface SettingsResponse {
+  claude_api_key?: string;
+  openai_api_key?: string;
+  polygon_api_key?: string;
+  tavily_api_key?: string;
+}
+
+export interface SettingsRequest {
+  claude_api_key?: string;
+  openai_api_key?: string;
+  polygon_api_key?: string;
+  tavily_api_key?: string;
+}
+
+export interface StockInfo {
+  symbol: string;
+  name: string;
+  logo?: string;
+  price?: number;
+  change?: number;
+  changePercent?: number;
+  timestamp?: string;
+  error?: string;
+}
+
+export interface StockQuotesResponse {
+  quotes: StockInfo[];
 }
