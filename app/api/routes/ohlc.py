@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from app.database import get_ohlc, get_metadata
+from app.database import get_ohlc, get_metadata, get_ohlc_aggregated
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,8 +39,17 @@ def get_stock_ohlc(
     symbol: str,
     start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    interval: str = Query("day", description="Time granularity: day, week, month, year"),
 ):
-    """Get OHLC data for a stock symbol."""
+    """Get OHLC data for a stock symbol with optional time aggregation."""
+    # Validate interval
+    valid_intervals = ["day", "week", "month", "year"]
+    if interval not in valid_intervals:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interval. Must be one of: {', '.join(valid_intervals)}"
+        )
+
     # Default to 5 years if not specified
     if not end:
         end = datetime.now().date().isoformat()
@@ -56,9 +65,9 @@ def get_stock_ohlc(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
 
-    # Query database
+    # Query database with aggregation
     try:
-        data = get_ohlc(symbol, start, end)
+        data = get_ohlc_aggregated(symbol, start, end, interval)
         if not data:
             raise HTTPException(
                 status_code=404,
@@ -71,6 +80,8 @@ def get_stock_ohlc(
         )
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to fetch OHLC for {symbol}: {e}")
         raise HTTPException(status_code=500, detail="Database error")
