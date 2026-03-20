@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { StockSelector } from '@/components/stock/StockSelector';
+import { AssetSelector } from '@/components/asset/AssetSelector';
 import { ChatPanel } from '@/components/chat/ChatPanel';
 import { KLineChart } from '@/components/chart/KLineChart';
 
 export default function Home() {
-  const [selectedStock, setSelectedStock] = useState<string | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const [assetType, setAssetType] = useState<'crypto' | 'stocks'>('stocks');
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8rem)]">
