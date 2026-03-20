@@ -102,10 +102,11 @@ export const api = {
     ),
 
   // Get OHLC data for a stock
-  getOHLC: (symbol: string, start?: string, end?: string) => {
+  getOHLC: (symbol: string, start?: string, end?: string, interval: string = 'day') => {
     const params = new URLSearchParams();
     if (start) params.append('start', start);
     if (end) params.append('end', end);
+    params.append('interval', interval);
     const query = params.toString();
     return fetchAPI<OHLCResponse>(
       `/api/stocks/${symbol}/ohlc${query ? `?${query}` : ''}`
