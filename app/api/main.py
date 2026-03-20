@@ -2,9 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import logging
+import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from app.tasks.update_ohlc import update_daily_ohlc
+from app.database.agent_history import init_db as init_agent_history_db
 
 from .models import HealthResponse
 from .routes import analyze, reports, system, settings, stocks, ohlc, history
@@ -23,7 +25,12 @@ scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def start_scheduler():
-    """Start scheduled tasks on app startup."""
+    """Start scheduled tasks and initialize databases on app startup."""
+    # Initialize agent history database
+    db_path = os.getenv("AGENT_HISTORY_DB_PATH", "data/agent_history.db")
+    init_agent_history_db(db_path)
+    logger.info(f"✓ Agent history database initialized: {db_path}")
+
     # Update daily after US market close (UTC 21:30 = EST 16:30)
     scheduler.add_job(
         update_daily_ohlc,
