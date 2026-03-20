@@ -569,30 +569,14 @@ git commit -m "fix(chart): force English localization for K-line chart"
 
 ---
 
-## Task 6: Remove Logo Functionality
+## Task 6: Remove Logo Fetching (Keep Logo Field)
 
 **Files:**
-- Modify: `app/api/models/schemas.py:15`
 - Modify: `app/api/routes/stocks.py:31,45`
-- Modify: `frontend/src/lib/types.ts`
 
-- [ ] **Step 1: Make logo optional in backend schema**
+**Note:** Keep logo field in schema for future manual import. Only remove automatic fetching from Polygon.
 
-In `app/api/models/schemas.py`, find the `StockQuote` class and comment out or remove logo field:
-
-```python
-class StockQuote(BaseModel):
-    symbol: str
-    name: str
-    price: Optional[float] = None
-    change: Optional[float] = None
-    change_percent: Optional[float] = None
-    # logo: Optional[str] = None  # Removed - no longer fetching logos
-    timestamp: Optional[str] = None
-    error: Optional[str] = None
-```
-
-- [ ] **Step 2: Remove logo fetching in stocks route**
+- [ ] **Step 1: Remove logo fetching in stocks route**
 
 In `app/api/routes/stocks.py`:
 - Remove import on line 31: `from app.polygon.client import fetch_ticker_details`
@@ -601,7 +585,7 @@ In `app/api/routes/stocks.py`:
 # Remove these lines
 logo = await asyncio.to_thread(fetch_ticker_details, symbol)
 ```
-- Update StockQuote creation (remove logo parameter):
+- Update StockQuote creation (set logo to None):
 ```python
 quote = StockQuote(
     symbol=symbol,
@@ -609,29 +593,12 @@ quote = StockQuote(
     price=data.get("price"),
     change=data.get("change"),
     change_percent=data.get("change_percent"),
-    # logo=logo,  # Remove this line
+    logo=None,  # No longer auto-fetching, can be set manually later
     timestamp=datetime.now(timezone.utc).isoformat(),
 )
 ```
 
-- [ ] **Step 3: Make logo optional in frontend types**
-
-In `frontend/src/lib/types.ts`, find `StockQuote` interface and make logo optional:
-
-```typescript
-export interface StockQuote {
-  symbol: string;
-  name: string;
-  price?: number;
-  change?: number;
-  change_percent?: number;
-  logo?: string;  // Already optional, no change needed
-  timestamp?: string;
-  error?: string;
-}
-```
-
-- [ ] **Step 4: Test backend imports**
+- [ ] **Step 2: Test backend imports**
 
 Run:
 ```bash
@@ -640,20 +607,13 @@ uv run python -c "from app.api.models.schemas import StockQuote; from app.api.ro
 
 Expected: "Import successful"
 
-- [ ] **Step 5: Test frontend compiles**
-
-Run:
-```bash
-cd frontend && npm run build
-```
-
-Expected: Build succeeds
-
-- [ ] **Step 6: Commit logo removal**
+- [ ] **Step 3: Commit logo fetching removal**
 
 ```bash
-git add app/api/models/schemas.py app/api/routes/stocks.py frontend/src/lib/types.ts
-git commit -m "refactor: remove logo fetching functionality"
+git add app/api/routes/stocks.py
+git commit -m "refactor: remove automatic logo fetching from Polygon
+
+Logo field retained in schema for future manual import"
 ```
 
 ---
