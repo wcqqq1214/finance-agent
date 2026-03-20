@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from app.polygon.client import fetch_ohlc
+from app.mcp_client.finance_client import call_get_stock_history
 from app.database import upsert_ohlc, update_metadata
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def update_daily_ohlc():
 
     for symbol in SYMBOLS:
         try:
-            data = fetch_ohlc(symbol, start_date, end_date)
+            data = call_get_stock_history(symbol, start_date, end_date)
             if data:
                 upsert_ohlc(symbol, data)
                 update_metadata(symbol, start_date, end_date)
