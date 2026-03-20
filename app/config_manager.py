@@ -120,7 +120,13 @@ class ConfigManager:
 
         Returns:
             OKX配置字典
+
+        Raises:
+            ValueError: 如果mode不是'live'或'demo'
         """
+        if mode not in ("live", "demo"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'live' or 'demo'")
+
         prefix = f"OKX_{mode.upper()}_"
         return {
             "api_key": os.getenv(f"{prefix}API_KEY"),
@@ -146,7 +152,13 @@ class ConfigManager:
 
         Returns:
             更新后的配置
+
+        Raises:
+            ValueError: 如果mode不是'live'或'demo'
         """
+        if mode not in ("live", "demo"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'live' or 'demo'")
+
         prefix = f"OKX_{mode.upper()}_"
         updates = {}
         if api_key:

@@ -38,6 +38,8 @@ def test_get_okx_settings_live(config_manager, monkeypatch):
 
     assert settings["mode"] == "live"
     assert settings["api_key"] == "test_live_key"
+    assert settings["secret_key"] == "test_live_secret"
+    assert settings["passphrase"] == "test_live_pass"
 
 
 def test_update_okx_settings(config_manager):
@@ -55,3 +57,49 @@ def test_update_okx_settings(config_manager):
 
     # 验证环境变量已更新
     assert os.getenv("OKX_DEMO_API_KEY") == "new_key"
+
+
+def test_invalid_mode_get_raises_error(config_manager):
+    """测试get_okx_settings使用无效mode抛出错误"""
+    with pytest.raises(ValueError, match="Invalid mode: invalid. Must be 'live' or 'demo'"):
+        config_manager.get_okx_settings("invalid")
+
+
+def test_invalid_mode_update_raises_error(config_manager):
+    """测试update_okx_settings使用无效mode抛出错误"""
+    with pytest.raises(ValueError, match="Invalid mode: production. Must be 'live' or 'demo'"):
+        config_manager.update_okx_settings(
+            mode="production",
+            api_key="test_key"
+        )
+
+
+def test_partial_update(config_manager):
+    """测试部分更新OKX配置"""
+    # 只更新api_key
+    updated = config_manager.update_okx_settings(
+        mode="demo",
+        api_key="only_new_key"
+    )
+
+    assert updated["api_key"] == "only_new_key"
+    # 其他字段保持原值
+    assert updated["secret_key"] == "test_demo_secret"
+    assert updated["passphrase"] == "test_demo_pass"
+
+
+def test_empty_strings_ignored(config_manager):
+    """测试空字符串不会更新配置"""
+    # 尝试用空字符串更新
+    updated = config_manager.update_okx_settings(
+        mode="demo",
+        api_key="",
+        secret_key="",
+        passphrase=""
+    )
+
+    # 应该保持原值
+    assert updated["api_key"] == "test_demo_key"
+    assert updated["secret_key"] == "test_demo_secret"
+    assert updated["passphrase"] == "test_demo_pass"
+
