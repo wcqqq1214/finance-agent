@@ -21,14 +21,13 @@ MAGNIFICENT_SEVEN = {
 
 # Quote cache (symbol -> (quote, timestamp))
 _QUOTE_CACHE: Dict[str, Tuple[StockQuote, datetime]] = {}
-QUOTE_CACHE_TTL = 10  # seconds
+QUOTE_CACHE_TTL = 60  # seconds - increased to reduce Yahoo Finance API calls
 
 
 async def _fetch_single_quote(symbol: str) -> StockQuote:
     """Fetch quote for a single symbol, returning error field on failure."""
     import os
     from app.mcp_client.finance_client import _call_get_us_stock_quote_async
-    from app.polygon.client import fetch_ticker_details
 
     # Check cache first
     if symbol in _QUOTE_CACHE:
@@ -42,14 +41,13 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
 
     try:
         data = await _call_get_us_stock_quote_async(symbol, url)
-        logo = await asyncio.to_thread(fetch_ticker_details, symbol)
         quote = StockQuote(
             symbol=symbol,
             name=name,
             price=data.get("price"),
             change=data.get("change"),
             change_percent=data.get("change_percent"),
-            logo=logo,
+            logo=None,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
         # Cache the successful result
@@ -66,5 +64,13 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
 async def get_stock_quotes(symbols: str = "AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA"):
     """Fetch real-time quotes for a comma-separated list of symbols."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    quotes = await asyncio.gather(*[_fetch_single_quote(s) for s in symbol_list])
+
+    # Fetch quotes with a small delay between requests to avoid rate limiting
+    quotes = []
+    for i, symbol in enumerate(symbol_list):
+        if i > 0:
+            await asyncio.sleep(0.2)  # 200ms delay between requests
+        quote = await _fetch_single_quote(symbol)
+        quotes.append(quote)
+
     return StockQuotesResponse(quotes=list(quotes))
