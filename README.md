@@ -358,6 +358,37 @@ Process news through the pipeline:
 uv run python scripts/process_layer1.py
 ```
 
+### Agent Decision History
+
+The system records complete decision-making processes for analysis and learning:
+
+**Query decision history:**
+
+```bash
+# View recent analysis runs
+curl http://localhost:8080/api/analysis-runs?limit=10
+
+# Get detailed run information
+curl http://localhost:8080/api/analysis-runs/20260321_143052
+
+# Query tool usage statistics
+curl http://localhost:8080/api/tool-calls/stats
+```
+
+**Database location:** `data/agent_history.db`
+
+**Features:**
+- Complete agent reasoning history (OpenAI standard message format)
+- Tool call tracking with success/failure status
+- Query APIs for analysis and debugging
+- Foundation for future learning mechanisms
+
+**Test the system:**
+
+```bash
+PYTHONPATH=/home/wcqqq21/finance-agent uv run python scripts/test_agent_history.py
+```
+
 ## Project layout
 
 ### Core Agent System
