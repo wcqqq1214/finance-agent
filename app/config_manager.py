@@ -112,6 +112,59 @@ class ConfigManager:
         # Write back to file
         self.env_path.write_text("\n".join(lines) + "\n")
 
+    def get_okx_settings(self, mode: str = "demo") -> Dict[str, Optional[str]]:
+        """获取OKX配置
+
+        Args:
+            mode: 模式 (live/demo)
+
+        Returns:
+            OKX配置字典
+        """
+        prefix = f"OKX_{mode.upper()}_"
+        return {
+            "api_key": os.getenv(f"{prefix}API_KEY"),
+            "secret_key": os.getenv(f"{prefix}SECRET_KEY"),
+            "passphrase": os.getenv(f"{prefix}PASSPHRASE"),
+            "mode": mode,
+        }
+
+    def update_okx_settings(
+        self,
+        mode: str,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        passphrase: Optional[str] = None
+    ) -> Dict[str, Optional[str]]:
+        """更新OKX配置
+
+        Args:
+            mode: 模式 (live/demo)
+            api_key: API密钥
+            secret_key: Secret密钥
+            passphrase: API密码
+
+        Returns:
+            更新后的配置
+        """
+        prefix = f"OKX_{mode.upper()}_"
+        updates = {}
+        if api_key:
+            updates[f"{prefix}API_KEY"] = api_key
+        if secret_key:
+            updates[f"{prefix}SECRET_KEY"] = secret_key
+        if passphrase:
+            updates[f"{prefix}PASSPHRASE"] = passphrase
+
+        if updates:
+            self._update_env_file(updates)
+
+            # 更新运行时环境
+            for key, value in updates.items():
+                os.environ[key] = value
+
+        return self.get_okx_settings(mode)
+
 
 # Global instance
 config_manager = ConfigManager()
