@@ -170,6 +170,61 @@ class OKXTradingClient:
 
         return balances
 
+    async def get_positions(self, inst_type: Optional[str] = None) -> List[Dict]:
+        """获取持仓信息（异步）
+
+        Args:
+            inst_type: 产品类型，如SPOT/MARGIN/SWAP/FUTURES/OPTION
+                      不传则返回所有类型
+
+        Returns:
+            持仓列表，格式：
+            [
+                {
+                    "inst_id": "BTC-USDT-SWAP",
+                    "position_side": "long",
+                    "position": "10",
+                    "available_position": "10",
+                    "average_price": "50000",
+                    "unrealized_pnl": "500",
+                    "leverage": "10"
+                }
+            ]
+
+        Raises:
+            OKXAuthError: 认证错误
+            OKXError: 其他API错误
+        """
+        return await asyncio.to_thread(self._get_positions_sync, inst_type)
+
+    def _get_positions_sync(self, inst_type: Optional[str] = None) -> List[Dict]:
+        """获取持仓的同步实现"""
+        # 构建请求参数
+        params = {}
+        if inst_type:
+            params['instType'] = inst_type
+
+        # 调用SDK
+        response = self.account_api.get_positions(**params)
+
+        # 验证响应
+        self._validate_response(response)
+
+        # 解析持仓数据
+        positions = []
+        for pos in response.get('data', []):
+            positions.append({
+                'inst_id': pos.get('instId'),
+                'position_side': pos.get('posSide'),
+                'position': pos.get('pos'),
+                'available_position': pos.get('availPos'),
+                'average_price': pos.get('avgPx'),
+                'unrealized_pnl': pos.get('upl'),
+                'leverage': pos.get('lever')
+            })
+
+        return positions
+
     def _validate_response(self, response: Dict) -> None:
         """验证OKX API响应
 
