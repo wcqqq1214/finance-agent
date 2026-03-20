@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, IChartApi, CandlestickData } from 'lightweight-charts';
+import { createChart, IChartApi, CandlestickData, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { TimeRangeSelector } from './TimeRangeSelector';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -85,10 +85,20 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
       return;
     }
 
+    // Clear previous chart if exists
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
     // Create chart
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: 400,
+      localization: {
+        locale: 'en-US',
+        dateFormat: 'yyyy-MM-dd',
+      },
       layout: {
         background: { color: 'transparent' },
         textColor: '#d1d5db',
@@ -106,17 +116,16 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
       },
     });
 
-    // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
+    // Add candlestick series using v5 API
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
       downColor: '#ef4444',
-      borderVisible: false,
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
     });
 
-    // Convert and set data
-    const formattedData: CandlestickData[] = ohlcData.map((d) => ({
+    // Convert and set data - lightweight-charts expects time as string in YYYY-MM-DD format
+    const formattedData = ohlcData.map((d) => ({
       time: d.date,
       open: d.open,
       high: d.high,
@@ -124,7 +133,7 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
       close: d.close,
     }));
 
-    candlestickSeries.setData(formattedData);
+    series.setData(formattedData);
     chart.timeScale().fitContent();
 
     // Handle resize
@@ -139,7 +148,10 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      chart.remove();
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
     };
   }, [ohlcData]);
 
