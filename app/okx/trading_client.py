@@ -225,6 +225,90 @@ class OKXTradingClient:
 
         return positions
 
+    async def place_order(
+        self,
+        inst_id: str,
+        side: str,
+        order_type: str,
+        size: str,
+        price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        **kwargs
+    ) -> Dict:
+        """下单（异步）
+
+        Args:
+            inst_id: 产品ID，如 BTC-USDT
+            side: 订单方向 buy/sell
+            order_type: 订单类型 market/limit/post_only/fok/ioc
+            size: 委托数量
+            price: 委托价格（限价单必填）
+            client_order_id: 客户端订单ID（可选）
+            **kwargs: 其他参数（如reduce_only等）
+
+        Returns:
+            订单信息，格式：
+            {
+                "order_id": "123456",
+                "client_order_id": "my-order-1",
+                "status_code": "0"
+            }
+
+        Raises:
+            OKXAuthError: 认证错误
+            OKXInsufficientBalanceError: 余额不足
+            OKXOrderError: 订单错误
+            OKXError: 其他错误
+        """
+        return await asyncio.to_thread(
+            self._place_order_sync, inst_id, side, order_type, size, price, client_order_id, **kwargs
+        )
+
+    def _place_order_sync(
+        self,
+        inst_id: str,
+        side: str,
+        order_type: str,
+        size: str,
+        price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        **kwargs
+    ) -> Dict:
+        """下单的同步实现"""
+        # 构建请求参数
+        params = {
+            'instId': inst_id,
+            'tdMode': 'cash',  # 现货交易模式
+            'side': side,
+            'ordType': order_type,
+            'sz': size
+        }
+
+        # 限价单需要价格
+        if price:
+            params['px'] = price
+
+        # 客户端订单ID
+        if client_order_id:
+            params['clOrdId'] = client_order_id
+
+        # 其他参数
+        params.update(kwargs)
+
+        # 调用SDK
+        response = self.trade_api.place_order(**params)
+
+        # 验证响应
+        self._validate_response(response)
+
+        # 解析订单数据
+        data = response.get('data', [{}])[0]
+        return {
+            'order_id': data.get('ordId'),
+            'client_order_id': data.get('clOrdId', ''),
+            'status_code': data.get('sCode', '0')
+        }
+
     def _validate_response(self, response: Dict) -> None:
         """验证OKX API响应
 
@@ -251,12 +335,12 @@ class OKXTradingClient:
             # 频率限制
             elif code == '50011':
                 raise OKXRateLimitError(msg, code=code)
-            # 业务错误
+            # 余额不足错误（特定错误码或消息包含关键词）
+            elif code == '51008' or '余额不足' in msg or 'insufficient' in msg.lower():
+                raise OKXInsufficientBalanceError(msg, code=code)
+            # 其他业务错误
             elif code and code.startswith('51'):
-                if '余额不足' in msg or 'Insufficient' in msg.lower():
-                    raise OKXInsufficientBalanceError(msg, code=code)
-                else:
-                    raise OKXOrderError(msg, code=code)
+                raise OKXOrderError(msg, code=code)
             else:
                 raise OKXError(msg, code=code)
 
