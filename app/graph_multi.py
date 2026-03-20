@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
+import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, cast
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
@@ -26,8 +28,12 @@ from app.quant.generate_report import generate_report as generate_quant_report
 from app.reporting.run_context import make_run_dir
 from app.reporting.writer import write_json
 from app.social.generate_report import generate_report as generate_social_report
+from app.database.agent_history import save_agent_execution, save_tool_call, init_db
+from app.database.message_adapter import convert_messages_to_standard
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 QUANT_SYSTEM = (
     "You are a rigorous quantitative data analyst. Your job is to call tools to fetch data and "
@@ -79,6 +85,8 @@ def _run_react_until_final_text(
     user_content: str,
     *,
     config: Optional[RunnableConfig] = None,
+    run_id: Optional[str] = None,
+    agent_type: Optional[str] = None,
 ) -> str:
     """Run a ReAct loop (agent <-> tools) until the model returns text without tool_calls."""
     llm = create_llm().bind_tools(list(tools))
@@ -105,14 +113,81 @@ def _run_react_until_final_text(
             HumanMessage(content=user_content),
         ],
     }
+
+    # Record start time
+    start_time = datetime.now(timezone(timedelta(hours=8)))
+
     final_state = compiled.invoke(initial)
     messages_out: List[BaseMessage] = final_state.get("messages", [])
+
+    # Extract final output
+    output_text = ""
     for m in reversed(messages_out):
         if isinstance(m, AIMessage) and not (getattr(m, "tool_calls", None)):
             content = getattr(m, "content", None)
             if content:
-                return str(content)
-    return ""
+                output_text = str(content)
+                break
+
+    # Record to database if run_id and agent_type provided
+    if run_id and agent_type:
+        try:
+            end_time = datetime.now(timezone(timedelta(hours=8)))
+            execution_id = str(uuid.uuid4())
+
+            # Convert messages to standard format
+            standard_messages = convert_messages_to_standard(messages_out)
+
+            # Save agent execution
+            db_path = os.getenv("AGENT_HISTORY_DB_PATH", "data/agent_history.db")
+            init_db(db_path)  # Ensure DB exists
+
+            save_agent_execution(
+                execution_id=execution_id,
+                run_id=run_id,
+                agent_type=agent_type,
+                messages=standard_messages,
+                output_text=output_text,
+                start_time=start_time,
+                end_time=end_time,
+                db_path=db_path
+            )
+
+            # Extract and save tool calls
+            for msg in messages_out:
+                if isinstance(msg, AIMessage):
+                    tool_calls = getattr(msg, "tool_calls", None)
+                    if tool_calls:
+                        for tc in tool_calls:
+                            call_id = tc.get("id", str(uuid.uuid4()))
+                            tool_name = tc.get("name", "")
+                            arguments = tc.get("args", {})
+
+                            # Find corresponding tool result
+                            tool_result = None
+                            for next_msg in messages_out[messages_out.index(msg)+1:]:
+                                if isinstance(next_msg, ToolMessage) and next_msg.tool_call_id == call_id:
+                                    try:
+                                        tool_result = json.loads(next_msg.content)
+                                    except:
+                                        tool_result = {"raw": next_msg.content}
+                                    break
+
+                            save_tool_call(
+                                call_id=call_id,
+                                execution_id=execution_id,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                result=tool_result,
+                                status="success" if tool_result else "unknown",
+                                timestamp=start_time,
+                                db_path=db_path
+                            )
+        except Exception as e:
+            # Log error but don't fail the agent execution
+            logger.error(f"Failed to record agent execution to history database: {e}", exc_info=True)
+
+    return output_text
 
 
 def _extract_asset_from_query(query: str) -> str:
