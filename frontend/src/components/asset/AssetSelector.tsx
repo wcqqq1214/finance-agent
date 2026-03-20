@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StockCard } from './StockCard';
+import { StockCard } from '../stock/StockCard';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import type { StockInfo } from '@/lib/types';
@@ -12,12 +12,19 @@ import type { StockInfo } from '@/lib/types';
 const SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA'];
 const REFRESH_INTERVAL = 120000; // 2 minutes - reduced frequency to avoid rate limits
 
-interface StockSelectorProps {
-  selectedStock: string | null;
-  onStockSelect: (symbol: string) => void;
+interface AssetSelectorProps {
+  selectedAsset: string | null;
+  onAssetSelect: (symbol: string) => void;
+  assetType: 'crypto' | 'stocks';
+  onAssetTypeChange: (type: 'crypto' | 'stocks') => void;
 }
 
-export function StockSelector({ selectedStock, onStockSelect }: StockSelectorProps) {
+export function AssetSelector({
+  selectedAsset,
+  onAssetSelect,
+  assetType,
+  onAssetTypeChange
+}: AssetSelectorProps) {
   const [stocks, setStocks] = useState<StockInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,8 +94,8 @@ export function StockSelector({ selectedStock, onStockSelect }: StockSelectorPro
               <StockCard
                 key={stock.symbol}
                 stock={stock}
-                selected={selectedStock === stock.symbol}
-                onClick={() => onStockSelect(stock.symbol)}
+                selected={selectedAsset === stock.symbol}
+                onClick={() => onAssetSelect(stock.symbol)}
               />
             ))}
       </div>
