@@ -41,13 +41,15 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
 
     try:
         data = await _call_get_us_stock_quote_async(symbol, url)
+        # Set logo path if available
+        logo_path = f"/logos/{symbol}.png" if symbol in MAGNIFICENT_SEVEN else None
         quote = StockQuote(
             symbol=symbol,
             name=name,
             price=data.get("price"),
             change=data.get("change"),
             change_percent=data.get("change_percent"),
-            logo=None,
+            logo=logo_path,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
         # Cache the successful result
@@ -55,7 +57,9 @@ async def _fetch_single_quote(symbol: str) -> StockQuote:
         return quote
     except Exception as exc:
         logger.warning(f"Failed to fetch quote for {symbol}: {exc}")
-        error_quote = StockQuote(symbol=symbol, name=name, error=str(exc))
+        # Set logo path even for error quotes
+        logo_path = f"/logos/{symbol}.png" if symbol in MAGNIFICENT_SEVEN else None
+        error_quote = StockQuote(symbol=symbol, name=name, logo=logo_path, error=str(exc))
         # Don't cache errors
         return error_quote
 

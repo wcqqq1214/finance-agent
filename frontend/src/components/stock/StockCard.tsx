@@ -42,9 +42,9 @@ export function StockCard({ stock, selected, onClick }: StockCardProps) {
           <Image
             src={stock.logo}
             alt={stock.symbol}
-            width={32}
-            height={32}
-            className="object-contain"
+            width={24}
+            height={24}
+            className="object-contain p-1"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
