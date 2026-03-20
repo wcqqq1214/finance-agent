@@ -17,20 +17,20 @@ function calculateDateRange(range: TimeRange): { start: string; end: string } {
 
   switch (range) {
     case 'D':
-      // Day: show last 3 months of daily data (~60-90 bars)
-      start.setMonth(start.getMonth() - 3);
+      // Day: load 2 years of data for zooming, initially show last 3 months
+      start.setFullYear(start.getFullYear() - 2);
       break;
     case 'W':
-      // Week: show last 1 year of weekly data (~52 bars)
-      start.setFullYear(start.getFullYear() - 1);
+      // Week: load 5 years of data for zooming, initially show last 1 year
+      start.setFullYear(start.getFullYear() - 5);
       break;
     case 'M':
-      // Month: show last 3 years of monthly data (~36 bars)
-      start.setFullYear(start.getFullYear() - 3);
+      // Month: load 10 years of data for zooming, initially show last 3 years
+      start.setFullYear(start.getFullYear() - 10);
       break;
     case 'Y':
-      // Year: show all available yearly data (5 years, ~5 bars)
-      start.setFullYear(start.getFullYear() - 5);
+      // Year: load all available data (20 years)
+      start.setFullYear(start.getFullYear() - 20);
       break;
   }
 
@@ -149,7 +149,34 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
     }));
 
     series.setData(formattedData);
-    chart.timeScale().fitContent();
+
+    // Set initial visible range based on time granularity
+    // This shows recent data while keeping all historical data available for zooming
+    if (formattedData.length > 0) {
+      const lastIndex = formattedData.length - 1;
+      let visibleBars: number;
+
+      switch (timeRange) {
+        case 'D':
+          visibleBars = 60; // Show ~3 months initially
+          break;
+        case 'W':
+          visibleBars = 52; // Show ~1 year initially
+          break;
+        case 'M':
+          visibleBars = 36; // Show ~3 years initially
+          break;
+        case 'Y':
+          visibleBars = 5; // Show ~5 years initially
+          break;
+      }
+
+      const fromIndex = Math.max(0, lastIndex - visibleBars + 1);
+      chart.timeScale().setVisibleRange({
+        from: formattedData[fromIndex].time as any,
+        to: formattedData[lastIndex].time as any,
+      });
+    }
 
     // Handle resize
     const handleResize = () => {
