@@ -216,3 +216,65 @@ def call_search_news_tavily(query: str, limit: int = 5) -> List[dict[str, Any]]:
     """
     url = os.environ.get("MCP_NEWS_SEARCH_URL", DEFAULT_NEWS_SEARCH_URL)
     return asyncio.run(_call_search_news_tavily_async(query, limit, url))
+
+
+async def _call_get_stock_history_async(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    url: str
+) -> List[dict[str, Any]]:
+    """Call the get_stock_history tool on the MCP server."""
+    async with streamable_http_client(url) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "get_stock_history",
+                arguments={
+                    "ticker": ticker,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            )
+            if result.isError:
+                error_msg = "Unknown MCP error"
+                if result.content:
+                    for part in result.content:
+                        if isinstance(part, TextContent):
+                            error_msg = part.text
+                            break
+                raise RuntimeError(f"MCP tool error: {error_msg}")
+            if not result.content:
+                raise RuntimeError("MCP tool returned empty content")
+            text = ""
+            for part in result.content:
+                if isinstance(part, TextContent):
+                    text = part.text
+                    break
+            if not text:
+                raise RuntimeError("MCP tool returned no text content")
+            data = json.loads(text)
+            # Return the data array from response
+            return data.get("data", [])
+
+
+def call_get_stock_history(
+    ticker: str,
+    start_date: str,
+    end_date: str
+) -> List[dict[str, Any]]:
+    """Call the MCP server's get_stock_history tool.
+
+    Args:
+        ticker: Stock symbol (e.g., AAPL, MSFT)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+
+    Returns:
+        List of dicts with date, open, high, low, close, volume
+
+    Raises:
+        RuntimeError: If the MCP server is unreachable or returns an error
+    """
+    url = os.environ.get("MCP_MARKET_DATA_URL", DEFAULT_MARKET_DATA_URL)
+    return asyncio.run(_call_get_stock_history_async(ticker, start_date, end_date, url))
