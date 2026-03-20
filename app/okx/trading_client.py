@@ -9,7 +9,11 @@ logger = logging.getLogger(__name__)
 
 
 class OKXTradingClient:
-    """OKX交易客户端，封装OKX SDK调用"""
+    """OKX交易客户端，封装OKX SDK调用
+
+    Note: API credentials are stored in memory as private attributes.
+    This is necessary for SDK operations but should be handled with care.
+    """
 
     def __init__(
         self,
@@ -25,10 +29,22 @@ class OKXTradingClient:
             secret_key: Secret密钥
             passphrase: API密码
             is_demo: 是否为模拟盘
+
+        Raises:
+            ValueError: 如果任何凭证为空字符串
         """
-        self.api_key = api_key
-        self.secret_key = secret_key
-        self.passphrase = passphrase
+        # 输入验证
+        if not api_key:
+            raise ValueError("api_key cannot be empty")
+        if not secret_key:
+            raise ValueError("secret_key cannot be empty")
+        if not passphrase:
+            raise ValueError("passphrase cannot be empty")
+
+        # 使用私有属性存储凭证
+        self._api_key = api_key
+        self._secret_key = secret_key
+        self._passphrase = passphrase
         self.is_demo = is_demo
 
         # 初始化SDK客户端
