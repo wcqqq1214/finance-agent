@@ -947,18 +947,19 @@ class OKXErrorResponse(BaseModel):
 
 ```python
 # app/okx/__init__.py
-from typing import Dict
+from typing import Dict, Optional
 from .trading_client import OKXTradingClient
 from .exceptions import OKXConfigError
 from app.config_manager import config_manager
 
 _client_cache: Dict[str, OKXTradingClient] = {}
 
-def get_okx_client(mode: str = "demo") -> OKXTradingClient:
+def get_okx_client(mode: str = "demo", force_refresh: bool = False) -> OKXTradingClient:
     """获取OKX客户端实例（单例模式）
 
     Args:
         mode: 模式 (live/demo)
+        force_refresh: 强制刷新客户端（用于配置更新后）
 
     Returns:
         OKXTradingClient实例
@@ -968,6 +969,10 @@ def get_okx_client(mode: str = "demo") -> OKXTradingClient:
     """
     if mode not in ["live", "demo"]:
         raise OKXConfigError(f"Invalid mode: {mode}")
+
+    # 强制刷新时清除缓存
+    if force_refresh and mode in _client_cache:
+        del _client_cache[mode]
 
     # 检查缓存
     if mode in _client_cache:
@@ -993,6 +998,18 @@ def get_okx_client(mode: str = "demo") -> OKXTradingClient:
     # 缓存
     _client_cache[mode] = client
     return client
+
+def clear_client_cache(mode: Optional[str] = None):
+    """清除客户端缓存
+
+    Args:
+        mode: 要清除的模式，None表示清除所有
+    """
+    global _client_cache
+    if mode:
+        _client_cache.pop(mode, None)
+    else:
+        _client_cache.clear()
 ```
 
 **ConfigManager扩展：**
@@ -1049,6 +1066,10 @@ def update_okx_settings(
     # 更新运行时环境
     for key, value in updates.items():
         os.environ[key] = value
+
+    # 清除对应模式的客户端缓存
+    from app.okx import clear_client_cache
+    clear_client_cache(mode)
 
     return self.get_okx_settings(mode)
 ```
@@ -1131,37 +1152,64 @@ logger.error(f"[OKX-{mode.upper()}] Order failed: {error_message}")
 - 不同接口有不同的频率限制（详见OKX API文档）
 - 超过限制会返回429错误
 
-**重试策略：**
+**需要重试的操作：**
+- 所有账户查询操作（get_account_balance, get_positions等）
+- 所有交易操作（place_order, cancel_order等）
+- 所有行情查询操作（get_ticker, get_orderbook等）
+
+**不需要重试的操作：**
+- 客户端初始化
+- 配置验证
+
+**重试策略实现：**
 ```python
+# app/okx/trading_client.py
 import asyncio
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    reraise=True
-)
-async def _call_with_retry(self, func, *args, **kwargs):
-    """带重试的API调用
+class OKXTradingClient:
+    # ... 其他代码 ...
 
-    Args:
-        func: 要调用的函数
-        *args, **kwargs: 函数参数
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry_if=retry_if_exception_type(OKXRateLimitError),
+        reraise=True
+    )
+    async def _call_with_retry(self, func, *args, **kwargs):
+        """带重试的API调用
 
-    Returns:
-        函数返回值
+        Args:
+            func: 要调用的函数
+            *args, **kwargs: 函数参数
 
-    Raises:
-        OKXRateLimitError: 超过重试次数仍然失败
-    """
-    try:
-        return await func(*args, **kwargs)
-    except OKXRateLimitError as e:
-        logger.warning(f"Rate limit hit, retrying... {e}")
-        raise
+        Returns:
+            函数返回值
+
+        Raises:
+            OKXRateLimitError: 超过重试次数仍然失败
+        """
+        try:
+            return await func(*args, **kwargs)
+        except OKXRateLimitError as e:
+            logger.warning(f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] Rate limit hit, retrying... {e}")
+            raise
+
+    # 所有API调用方法都应该使用 _call_with_retry 包装
+    async def get_account_balance(self, currency: Optional[str] = None) -> Dict:
+        """获取账户余额（带重试）"""
+        return await self._call_with_retry(self._get_account_balance_impl, currency)
+
+    async def _get_account_balance_impl(self, currency: Optional[str] = None) -> Dict:
+        """获取账户余额的实际实现"""
+        # 实际的SDK调用逻辑
+        pass
 ```
 
-**实现位置**: `app/okx/trading_client.py` 中的私有方法
+**依赖添加：**
+```bash
+uv add tenacity
+```
 
 ### 8.6 实盘操作确认机制（未来扩展）
 
@@ -1491,6 +1539,25 @@ curl -X PUT "http://localhost:8080/api/settings/okx" \
 ```
 
 ## 12. 实现优先级
+
+### Phase 0 - SDK验证与选择（前置任务）
+
+**目标**: 验证并选定OKX Python SDK
+
+**任务列表**:
+1. 安装 `python-okx` 包并测试基本API调用
+2. 如果 `python-okx` 不满足需求，测试 `okx` 包
+3. 编写SDK概念验证代码（POC）
+   - 测试账户API初始化
+   - 测试交易API初始化
+   - 测试行情API初始化
+   - 验证实盘/模拟盘切换机制
+4. 根据选定SDK更新本设计文档中的代码示例
+5. 确认SDK的错误响应格式
+
+**预计时间**: 0.5-1天
+
+**输出**: SDK选择决策文档和初始化代码示例
 
 ### Phase 1 - 核心功能（MVP）
 
