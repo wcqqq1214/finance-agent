@@ -360,6 +360,73 @@ def get_stock_data(ticker: str, period: str = "3mo") -> dict[str, Any]:
     return _get_stock_data_impl(ticker, period)
 
 
+def _get_stock_history_impl(
+    ticker: str, start_date: str, end_date: str
+) -> dict[str, Any]:
+    """Fetch historical OHLC data via yfinance."""
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        return {"ticker": "", "error": "Empty ticker."}
+
+    try:
+        t = yf.Ticker(normalized)
+        hist = t.history(start=start_date, end=end_date, auto_adjust=False)
+
+        if hist is None or hist.empty:
+            return {
+                "ticker": normalized,
+                "data": [],
+                "error": f"No data available for {normalized} in range {start_date} to {end_date}",
+            }
+
+        # Convert DataFrame to list of dicts
+        data = []
+        for date_idx, row in hist.iterrows():
+            data.append({
+                "date": date_idx.strftime("%Y-%m-%d"),
+                "open": _round_or_none(float(row["Open"]), 3) if pd.notna(row["Open"]) else None,
+                "high": _round_or_none(float(row["High"]), 3) if pd.notna(row["High"]) else None,
+                "low": _round_or_none(float(row["Low"]), 3) if pd.notna(row["Low"]) else None,
+                "close": _round_or_none(float(row["Close"]), 3) if pd.notna(row["Close"]) else None,
+                "volume": int(row["Volume"]) if pd.notna(row["Volume"]) else 0,
+            })
+
+        return {
+            "ticker": normalized,
+            "data": data,
+        }
+    except Exception as exc:
+        return {
+            "ticker": normalized,
+            "data": [],
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+@mcp.tool()
+def get_stock_history(
+    ticker: str, start_date: str, end_date: str
+) -> dict[str, Any]:
+    """Fetch historical OHLC data for a ticker over a date range.
+
+    Use this to retrieve daily open, high, low, close, and volume data
+    for backtesting, charting, or historical analysis.
+
+    Args:
+        ticker: Stock symbol (e.g., AAPL, MSFT, GOOGL)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+
+    Returns:
+        Dict with:
+        - ticker: str - The normalized ticker symbol
+        - data: List[dict] - Array of OHLC records with keys:
+            date, open, high, low, close, volume
+        - error: str (optional) - Error message if fetch failed
+    """
+    return _get_stock_history_impl(ticker, start_date, end_date)
+
+
 def main() -> None:
     """Run the MCP server with streamable HTTP transport."""
     import uvicorn
