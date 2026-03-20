@@ -69,6 +69,8 @@ def get_stock_ohlc(
             symbol=symbol.upper(),
             data=[OHLCRecord(**record) for record in data]
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch OHLC for {symbol}: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -88,11 +90,13 @@ def get_data_status(symbol: str):
     # Count total records
     from app.database import get_conn
     conn = get_conn()
-    count = conn.execute(
-        "SELECT COUNT(*) as cnt FROM ohlc WHERE symbol = ?",
-        (symbol.upper(),)
-    ).fetchone()['cnt']
-    conn.close()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) as cnt FROM ohlc WHERE symbol = ?",
+            (symbol.upper(),)
+        ).fetchone()['cnt']
+    finally:
+        conn.close()
 
     return DataStatusResponse(
         symbol=symbol.upper(),
