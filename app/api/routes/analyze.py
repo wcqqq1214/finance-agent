@@ -19,24 +19,6 @@ async def run_analysis_stream(query: str) -> AsyncGenerator[str, None]:
     progress updates as SSE events.
     """
     try:
-        # Send initial status
-        yield f"data: {json.dumps({'type': 'progress', 'message': 'Starting analysis...'})}\n\n"
-        await asyncio.sleep(0.1)
-
-        # Stream progress updates
-        steps = [
-            "Initializing agents...",
-            "Fetching market data...",
-            "Analyzing technical indicators...",
-            "Searching for news...",
-            "Analyzing sentiment...",
-            "Generating report...",
-        ]
-
-        for step in steps:
-            yield f"data: {json.dumps({'type': 'progress', 'message': step})}\n\n"
-            await asyncio.sleep(0.1)
-
         # Actually call the agent system
         result = await asyncio.to_thread(run_once, query)
 

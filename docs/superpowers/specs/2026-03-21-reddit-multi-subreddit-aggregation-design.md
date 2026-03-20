@@ -52,7 +52,9 @@ return ["stocks", "investing", "StockMarket", "wallstreetbets", "options"]
 @dataclass(frozen=True)
 class RedditIngestConfig:
     subreddit_crypto: str = "CryptoCurrency"
-    # 移除 subreddit_stocks_primary 和 subreddit_stocks_secondary
+    # Deprecated: kept for backward compatibility, no longer used
+    subreddit_stocks_primary: str = "wallstreetbets"
+    subreddit_stocks_secondary: str = "stocks"
 
     # 新增：宽泛抓取阶段的每个subreddit帖子数
     wide_fetch_limit: int = 50
@@ -81,14 +83,17 @@ class RedditIngestConfig:
 
 - 对每个subreddit调用 `fetch_subreddit_top_posts_json()`
 - 使用 `wide_fetch_limit` (默认50) 而非当前的 `top_posts_limit` (20)
-- 只获取帖子元数据（title, selftext, score, permalink），不抓取评论
-- 收集所有subreddit的帖子到一个列表中
+- 此步骤获取帖子元数据（title, selftext, score, permalink），这是现有行为，不是新增改动
+- **聚合步骤**：将所有subreddit的帖子收集到单个列表 `all_posts: List[RedditPost] = []` 中
 
 #### 3.2 内容过滤阶段
 
 **新增函数**: `_filter_posts_by_asset(posts, asset)`
 
 ```python
+from app.social.reddit.json_client import RedditPost
+from typing import List
+
 def _filter_posts_by_asset(
     posts: List[RedditPost],
     asset: str
@@ -96,7 +101,7 @@ def _filter_posts_by_asset(
     """Filter posts that mention the target asset ticker.
 
     Args:
-        posts: List of Reddit posts with title and selftext
+        posts: List of Reddit posts (RedditPost TypedDict instances)
         asset: Asset ticker (e.g., "NVDA")
 
     Returns:
@@ -119,12 +124,16 @@ def _filter_posts_by_asset(
 - 大小写不敏感的字符串包含检查
 - 匹配范围：标题（title）+ 正文（selftext）
 - 当前版本仅支持简单字符串匹配，后续可扩展为别名/正则匹配
+- **注意**：子串匹配可能导致误匹配（如"NVDA"会匹配"NVDAX"），这是已知限制，未来可通过词边界匹配改进
 
 #### 3.3 全局排序与选择
 
 **新增函数**: `_select_top_posts_globally(posts, limit)`
 
 ```python
+from app.social.reddit.json_client import RedditPost
+from typing import List
+
 def _select_top_posts_globally(
     posts: List[RedditPost],
     limit: int
@@ -190,6 +199,7 @@ meta = {
 **过滤后无结果**:
 - 如果 `_filter_posts_by_asset()` 返回空列表，不视为错误
 - 返回包含header的空报告，元数据中 `posts_after_filter: 0`
+- 在header中添加说明："No posts matching the asset ticker were found"
 
 **单个帖子详情抓取失败**:
 - 跳过该帖子，继续处理下一个
@@ -200,16 +210,22 @@ meta = {
 ### 修改文件清单
 
 1. **app/social/reddit/tools.py**
-   - 修改 `_asset_to_subreddits()`: 返回5个subreddit
-   - 修改 `RedditIngestConfig`: 新增参数，移除旧参数
-   - 新增 `_filter_posts_by_asset()`: 内容过滤函数
-   - 新增 `_select_top_posts_globally()`: 全局排序函数
-   - 修改 `_get_reddit_discussion_via_json()`: 实现动态过滤管道
+   - 修改 `_asset_to_subreddits()`: 返回5个subreddit（第45-55行区域）
+   - 修改 `RedditIngestConfig`: 新增参数，保留旧参数但标记为deprecated（第28-39行区域）
+   - 新增 `_filter_posts_by_asset()`: 内容过滤函数（插入到第56行之前）
+   - 新增 `_select_top_posts_globally()`: 全局排序函数（插入到第56行之前）
+   - 修改 `_get_reddit_discussion_via_json()`: 实现动态过滤管道（第114-186行区域）
+     - 在第129-140行的for循环中：收集所有posts到 `all_posts` 列表
+     - 在第141行之前插入：过滤和排序逻辑
+     - 修改第142-174行的for循环：遍历选中的帖子而非所有帖子
 
 2. **tests/test_social_reddit_subreddit_routing.py**
-   - 更新现有测试以匹配新的路由逻辑
-   - 新增测试：验证5个subreddit路由
-   - 新增测试：验证过滤和排序逻辑
+   - 更新现有测试以匹配新的路由逻辑（第8-34行）
+   - 新增测试用例到同一文件：
+     - `test_stock_routes_to_five_subreddits`: 验证5个subreddit路由
+     - `test_filter_posts_by_asset`: 验证过滤逻辑
+     - `test_select_top_posts_globally`: 验证排序逻辑
+     - `test_empty_filter_result`: 验证空结果处理
 
 ### 向后兼容性
 
@@ -221,10 +237,12 @@ meta = {
 ### 性能影响
 
 **预期时间**:
-- 宽泛抓取：5个subreddit × 1-2秒 = 5-10秒
+- 宽泛抓取：5个subreddit × 2-4秒（含重试） = 10-20秒
 - 过滤与排序：< 0.1秒（内存操作）
-- 详情抓取：15篇 × 0.5秒 = 7-8秒
-- **总计**: 12-18秒（vs 当前的8-10秒）
+- 详情抓取：15篇 × 0.5-1秒 = 8-15秒
+- **总计**: 18-35秒（vs 当前的8-10秒）
+
+**注意**: 由于串行执行和429重试逻辑（最多3次重试，指数退避），实际时间可能接近上限
 
 **优化考虑**:
 - 当前串行执行以避免429限流
@@ -279,6 +297,7 @@ meta = {
 
 **风险1**: 过滤后帖子数量不足
 - **缓解**: 如果 `posts_after_filter < final_posts_limit`，输出所有匹配的帖子，不强制达到limit
+- **特殊情况**: 如果 `posts_after_filter == 0`，返回空报告并在header中说明
 
 **风险2**: Reddit API限流
 - **缓解**: 保持串行执行，添加重试逻辑（已有）
