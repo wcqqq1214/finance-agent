@@ -72,3 +72,62 @@ class StockQuote(BaseModel):
 
 class StockQuotesResponse(BaseModel):
     quotes: List[StockQuote]
+
+
+# OKX相关模型
+
+class OKXOrderRequest(BaseModel):
+    """OKX下单请求"""
+    inst_id: str
+    side: str  # buy/sell
+    order_type: str  # market/limit/post_only/fok/ioc
+    size: str
+    price: Optional[str] = None
+    client_order_id: Optional[str] = None
+    reduce_only: Optional[bool] = False
+
+
+class OKXBalance(BaseModel):
+    """OKX账户余额"""
+    currency: str
+    available: str
+    frozen: str
+    total: str
+
+
+class OKXPosition(BaseModel):
+    """OKX持仓信息"""
+    inst_id: str
+    position_side: str  # long/short/net
+    position: str
+    available_position: str
+    average_price: str
+    unrealized_pnl: str
+    leverage: str
+
+
+class OKXOrderResponse(BaseModel):
+    """OKX订单响应"""
+    order_id: str
+    client_order_id: str
+    inst_id: str
+    status: str  # live/partially_filled/filled/canceled
+    side: str
+    order_type: str
+    size: str
+    filled_size: str
+    price: Optional[str]
+    average_price: Optional[str]
+    timestamp: str
+
+
+class OKXTicker(BaseModel):
+    """OKX Ticker数据"""
+    inst_id: str
+    last: str
+    bid: str
+    ask: str
+    volume_24h: str
+    high_24h: str
+    low_24h: str
+    timestamp: str
