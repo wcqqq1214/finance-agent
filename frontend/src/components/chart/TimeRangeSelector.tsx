@@ -9,9 +9,16 @@ interface TimeRangeSelectorProps {
   disabled?: boolean;
 }
 
-const TIME_RANGES: TimeRange[] = ['1M', '3M', '6M', '1Y', '5Y'];
+const TIME_RANGES: TimeRange[] = ['D', 'W', 'M', 'Y'];
 
 export function TimeRangeSelector({ value, onChange, disabled }: TimeRangeSelectorProps) {
+  const labels: Record<TimeRange, string> = {
+    'D': 'Day',
+    'W': 'Week',
+    'M': 'Month',
+    'Y': 'Year',
+  };
+
   return (
     <div className="flex gap-1">
       {TIME_RANGES.map((range) => (
@@ -21,9 +28,9 @@ export function TimeRangeSelector({ value, onChange, disabled }: TimeRangeSelect
           size="sm"
           onClick={() => onChange(range)}
           disabled={disabled}
-          className="min-w-[50px]"
+          className="min-w-[60px]"
         >
-          {range}
+          {labels[range]}
         </Button>
       ))}
     </div>
