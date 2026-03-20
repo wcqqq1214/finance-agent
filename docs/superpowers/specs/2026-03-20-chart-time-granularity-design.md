@@ -97,7 +97,7 @@ GET /stocks/{symbol}/ohlc
 
 #### 2.3.1 数据库查询函数
 
-**app/database.py** - 新增函数
+**app/database/ohlc.py** - 新增函数
 
 ```python
 def get_ohlc_aggregated(symbol: str, start: str, end: str, interval: str) -> List[Dict]:
@@ -112,6 +112,7 @@ def get_ohlc_aggregated(symbol: str, start: str, end: str, interval: str) -> Lis
     Returns:
         List of aggregated OHLC records as dictionaries
     """
+    from app.database.schema import get_conn
     conn = get_conn()
 
     if interval == 'day':
@@ -200,6 +201,23 @@ def get_ohlc_aggregated(symbol: str, start: str, end: str, interval: str) -> Lis
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(row) for row in rows]
+```
+
+**app/database/__init__.py** - 导出新函数
+
+需要在 `__all__` 列表中添加 `get_ohlc_aggregated`：
+
+```python
+__all__ = [
+    "get_conn",
+    "init_db",
+    "DEFAULT_DB_PATH",
+    "get_ohlc",
+    "get_ohlc_aggregated",  # 新增
+    "get_metadata",
+    "upsert_ohlc",
+    "update_metadata",
+]
 ```
 
 #### 2.3.2 API 路由修改
@@ -388,6 +406,12 @@ const fetchData = useCallback(async () => {
 }, [selectedStock, timeRange, toast]);
 ```
 
+**说明**:
+- 时间窗口（start/end）由前端根据 timeRange 计算
+- API 总是获取完整的时间窗口数据
+- lightweight-charts 会根据初始显示设置自动调整可见范围
+- 用户可以通过滚轮缩放和拖拽查看窗口内的所有数据
+
 3. **默认值修改**
 
 ```typescript
@@ -433,9 +457,10 @@ export const api = {
 ## 3. 实现步骤
 
 ### 3.1 后端实现
-1. 在 `app/database.py` 中添加 `get_ohlc_aggregated()` 函数
-2. 修改 `app/api/routes/ohlc.py` 中的 `get_stock_ohlc()` 端点
-3. 编写单元测试验证聚合逻辑
+1. 在 `app/database/ohlc.py` 中添加 `get_ohlc_aggregated()` 函数
+2. 在 `app/database/__init__.py` 中导出 `get_ohlc_aggregated`
+3. 修改 `app/api/routes/ohlc.py` 中的 `get_stock_ohlc()` 端点
+4. 编写单元测试验证聚合逻辑
 
 ### 3.2 前端实现
 1. 修改 `frontend/src/lib/types.ts` 中的 `TimeRange` 类型
@@ -447,6 +472,7 @@ export const api = {
 1. 后端单元测试：验证各个 interval 的聚合逻辑
 2. 前端集成测试：验证按钮切换和数据展示
 3. 手动测试：验证图表交互（缩放、拖拽）
+4. 性能测试：验证聚合查询响应时间 < 500ms（5年数据）
 
 ## 4. 向后兼容性
 
@@ -454,10 +480,113 @@ export const api = {
 - `interval` 参数为可选，默认值为 `day`
 - 现有调用方不传 `interval` 时，行为与之前完全一致
 - 不影响其他可能调用此 API 的服务
+- `/stocks/{symbol}/data-status` 端点无需修改，保持不变
 
 ### 4.2 前端兼容性
 - 修改了 `TimeRange` 类型定义，需要全局搜索确保没有其他地方使用旧值
 - `api.getOHLC()` 增加了可选参数，现有调用仍然有效
+
+### 4.3 示例 API 响应
+
+**Day interval (interval=day)**
+```json
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "date": "2024-01-02",
+      "open": 150.0,
+      "high": 155.0,
+      "low": 148.0,
+      "close": 153.0,
+      "volume": 50000000
+    },
+    {
+      "date": "2024-01-03",
+      "open": 153.0,
+      "high": 157.0,
+      "low": 152.0,
+      "close": 156.0,
+      "volume": 48000000
+    }
+  ]
+}
+```
+
+**Week interval (interval=week)**
+```json
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "date": "2024-01-01",
+      "open": 150.0,
+      "high": 160.0,
+      "low": 148.0,
+      "close": 158.0,
+      "volume": 250000000
+    },
+    {
+      "date": "2024-01-08",
+      "open": 158.0,
+      "high": 165.0,
+      "low": 157.0,
+      "close": 163.0,
+      "volume": 240000000
+    }
+  ]
+}
+```
+
+**Month interval (interval=month)**
+```json
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "date": "2024-01-01",
+      "open": 150.0,
+      "high": 170.0,
+      "low": 145.0,
+      "close": 165.0,
+      "volume": 1200000000
+    },
+    {
+      "date": "2024-02-01",
+      "open": 165.0,
+      "high": 180.0,
+      "low": 160.0,
+      "close": 175.0,
+      "volume": 1100000000
+    }
+  ]
+}
+```
+
+**Year interval (interval=year)**
+```json
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "date": "2023-01-01",
+      "open": 130.0,
+      "high": 180.0,
+      "low": 125.0,
+      "close": 175.0,
+      "volume": 15000000000
+    },
+    {
+      "date": "2024-01-01",
+      "open": 175.0,
+      "high": 200.0,
+      "low": 170.0,
+      "close": 195.0,
+      "volume": 14500000000
+    }
+  ]
+}
+```
 
 ## 5. 边界情况处理
 
