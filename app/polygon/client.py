@@ -2,6 +2,9 @@
 
 This module provides functions to fetch OHLC and news data from Polygon.io
 with built-in rate limiting to respect the free tier limit of 5 requests/minute.
+
+NOTE: As of 2026-03-20, only fetch_news() is actively used.
+OHLC data fetching has been migrated to yfinance via MCP server.
 """
 
 import json
