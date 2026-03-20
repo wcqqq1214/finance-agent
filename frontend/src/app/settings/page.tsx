@@ -107,7 +107,7 @@ export default function SettingsPage() {
   };
 
   const toggleVisibility = (key: string) => {
-    setShowPassword((prev) => ({ ...prev, [key]: !prev[key] }));
+    setShowPassword((prev) => ({ ...prev, [key]: !prev[key as keyof typeof prev] }));
   };
 
   const handleInputChange = (key: string, value: string) => {
