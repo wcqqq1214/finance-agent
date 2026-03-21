@@ -195,10 +195,27 @@ def validate_batch(candles: list[dict], symbol: str) -> list[dict]:
 
 ```python
 """清理crypto数据库中的异常数据"""
-from app.database.crypto_ohlc import get_conn
+from app.database.schema import get_conn
 
 def clean_anomalies():
     conn = get_conn()
+    
+    # 备份异常数据（在删除前）
+    print("Backing up anomalous data...")
+    backup_data = conn.execute("""
+        SELECT * FROM crypto_ohlc 
+        WHERE symbol = 'BTC-USDT' 
+        AND ((bar = '1W' AND timestamp IN (1687708800000, 1688313600000, 1691337600000))
+             OR (bar = '1M' AND high > 1000000))
+    """).fetchall()
+    
+    if backup_data:
+        import json
+        from datetime import datetime
+        backup_file = f"crypto_anomalies_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(backup_file, 'w') as f:
+            json.dump([dict(row) for row in backup_data], f, indent=2, default=str)
+        print(f"Backup saved to: {backup_file}")
     
     # 删除已识别的异常记录
     anomalies = [
