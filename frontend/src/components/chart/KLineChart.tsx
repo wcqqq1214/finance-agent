@@ -178,14 +178,34 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       wickDownColor: '#ef4444',
     });
 
-    // Convert and set data - lightweight-charts expects time as string in YYYY-MM-DD format
-    const formattedData = ohlcData.map((d) => ({
-      time: d.date,
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }));
+    // Convert and set data
+    // For intraday data (crypto 15M, 1H, 4H), use Unix timestamp
+    // For daily+ data, use YYYY-MM-DD format
+    const isIntradayData = ['15M', '1H', '4H'].includes(timeRange);
+
+    const formattedData: CandlestickData[] = ohlcData.map((d) => {
+      if (isIntradayData) {
+        // For intraday: convert ISO string to Unix timestamp (seconds)
+        const time = Math.floor(new Date(d.date).getTime() / 1000);
+        return {
+          time: time as any,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        };
+      } else {
+        // For daily+: extract YYYY-MM-DD part
+        const time = d.date.split('T')[0];
+        return {
+          time: time as any,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        };
+      }
+    });
 
     series.setData(formattedData);
 
