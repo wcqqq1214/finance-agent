@@ -56,12 +56,13 @@ def _asset_to_subreddits(asset: str, config: RedditIngestConfig) -> Sequence[str
 
     a = (asset or "").strip().upper()
     crypto = {"BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK"}
-    # Yahoo-style crypto pairs like BNB-USD should route to crypto subreddits
+    # Yahoo-style crypto pairs like BNB-USD should route to crypto subreddits.
     m = re.fullmatch(r"([A-Z]{2,10})-USD", a)
     base = m.group(1) if m else a
     if base in crypto:
         return [config.subreddit_crypto]
-    return [config.subreddit_stocks_primary, config.subreddit_stocks_secondary]
+    # Stock assets route to 5 subreddits covering fundamentals and momentum
+    return ["stocks", "investing", "StockMarket", "wallstreetbets", "options"]
 
 
 def _clean_text(text: str) -> str:

@@ -41,3 +41,27 @@ def test_config_has_new_parameters():
     assert config.final_posts_limit == 15
     assert config.top_comments_per_post == 3
 
+
+def test_stock_routes_to_five_subreddits():
+    from app.social.reddit.tools import _asset_to_subreddits, RedditIngestConfig
+
+    config = RedditIngestConfig()
+    subreddits = _asset_to_subreddits("NVDA", config)
+
+    assert len(subreddits) == 5
+    assert "stocks" in subreddits
+    assert "investing" in subreddits
+    assert "StockMarket" in subreddits
+    assert "wallstreetbets" in subreddits
+    assert "options" in subreddits
+
+
+def test_crypto_still_routes_to_one_subreddit():
+    from app.social.reddit.tools import _asset_to_subreddits, RedditIngestConfig
+
+    config = RedditIngestConfig()
+    subreddits = _asset_to_subreddits("BTC", config)
+
+    assert len(subreddits) == 1
+    assert subreddits[0] == "CryptoCurrency"
+
