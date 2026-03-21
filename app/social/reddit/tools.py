@@ -80,6 +80,37 @@ def _load_ticker_aliases() -> Dict[str, Dict[str, Any]]:
         return json.load(f)
 
 
+@lru_cache(maxsize=128)
+def _compile_ticker_regex(asset: str) -> Optional[re.Pattern]:
+    """编译并缓存 ticker 的正则表达式。
+
+    Args:
+        asset: 资产代码（如 "NVDA"）
+
+    Returns:
+        编译后的正则表达式对象，如果别名列表为空则返回 None
+    """
+    asset_upper = asset.upper()
+
+    try:
+        aliases_config = _load_ticker_aliases()
+        ticker_config = aliases_config.get(asset_upper, {})
+        aliases = ticker_config.get("aliases", [asset_upper])
+    except Exception as e:
+        logger.warning(f"Failed to load ticker aliases for {asset_upper}: {e}, falling back to simple matching")
+        aliases = [asset_upper]
+
+    # 验证别名列表非空
+    if not aliases:
+        logger.warning(f"Empty alias list for {asset_upper}")
+        return None
+
+    # 构建正则表达式：\$?\b(NVDA|Nvidia|Nvidia Corp)\b
+    escaped_aliases = [re.escape(alias) for alias in aliases]
+    pattern = r'\$?\b(' + '|'.join(escaped_aliases) + r')\b'
+    return re.compile(pattern, re.IGNORECASE)
+
+
 def _asset_to_subreddits(asset: str, config: RedditIngestConfig) -> Sequence[str]:
     """Map an asset ticker to candidate subreddit names."""
 

@@ -257,3 +257,39 @@ def test_load_ticker_aliases():
     meta_aliases = aliases["META"]["aliases"]
     assert "FB" in meta_aliases
     assert "Facebook" in meta_aliases
+
+
+def test_compile_ticker_regex():
+    """测试正则表达式编译和缓存"""
+    from app.social.reddit.tools import _compile_ticker_regex
+    import re
+
+    # 测试正常编译
+    regex = _compile_ticker_regex("NVDA")
+    assert regex is not None
+    assert isinstance(regex, re.Pattern)
+
+    # 测试匹配行为
+    assert regex.search("NVDA is bullish")
+    assert regex.search("$NVDA to the moon")
+    assert regex.search("Nvidia earnings")
+    assert regex.search("nvidia") is not None  # 大小写不敏感
+    assert not regex.search("NVDAX")  # 词边界阻止误匹配
+
+    # 测试缓存（同一对象）
+    regex2 = _compile_ticker_regex("NVDA")
+    assert regex is regex2
+
+
+def test_compile_ticker_regex_fallback():
+    """测试配置加载失败时的降级行为"""
+    from app.social.reddit.tools import _compile_ticker_regex
+    from unittest.mock import patch
+
+    # Mock 配置加载失败
+    with patch("app.social.reddit.tools._load_ticker_aliases", side_effect=FileNotFoundError):
+        regex = _compile_ticker_regex("UNKNOWN")
+        assert regex is not None
+        # 应该回退到只匹配 ticker 本身
+        assert regex.search("UNKNOWN")
+        assert not regex.search("UnknownCompany")
