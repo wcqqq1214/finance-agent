@@ -731,7 +731,7 @@ Expected: FAIL - 路由尝试从 stocks 表查询 BTC-USDT
 
 ```python
 # app/api/routes/ohlc.py
-# 在文件顶部添加导入
+# 首先在文件顶部添加导入（如果尚未导入）
 from app.database.crypto_ohlc import get_crypto_ohlc
 from datetime import datetime, timedelta
 
@@ -815,7 +815,12 @@ def get_crypto_ohlc_from_db(
 
 ```python
 @router.get("/{symbol}/ohlc", response_model=OHLCResponse)
-def get_stock_ohlc(...):
+def get_stock_ohlc(
+    symbol: str,
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    interval: str = Query("day", description="Time granularity"),
+):
     """获取 OHLC 数据（支持股票和加密货币）"""
     if "-" in symbol:
         return get_crypto_ohlc_from_db(symbol, start, end, interval)
@@ -859,6 +864,7 @@ export type TimeRange =
 
 ```typescript
 // frontend/src/lib/types.ts (在文件末尾添加)
+// 确保使用 export 关键字以便其他文件可以导入
 export interface CryptoQuote {
   symbol: string;      // BTC-USDT
   name: string;        // Bitcoin
@@ -902,7 +908,10 @@ git commit -m "feat(frontend): extend types for crypto support"
 
 ```typescript
 // frontend/src/lib/api.ts
-// 在 api 对象中添加新方法（在 getDataStatus 后）
+// 首先确保在文件顶部导入了 CryptoQuotesResponse 类型
+import type { CryptoQuotesResponse } from './types';
+
+// 然后在 api 对象中添加新方法（在 getDataStatus 后）
 export const api = {
   // ... 现有方法 ...
 
@@ -1114,7 +1123,10 @@ const CRYPTO_SYMBOLS = [
 
 ```typescript
 // frontend/src/components/asset/AssetSelector.tsx
-// 在组件中添加状态
+// 首先确保在文件顶部导入了 CryptoQuote 类型
+import type { CryptoQuote } from '@/lib/types';
+
+// 然后在组件中添加状态
 const [cryptos, setCryptos] = useState<CryptoQuote[]>([]);
 ```
 
