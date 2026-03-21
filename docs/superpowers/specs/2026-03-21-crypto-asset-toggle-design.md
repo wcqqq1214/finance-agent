@@ -279,7 +279,47 @@ async def get_ticker(self, inst_id: str) -> Dict[str, Any]:
         raise
 ```
 
-### 4.2 OHLC 路由改造
+### 4.2 数据库表设计
+
+**文件**: `app/database/schema.py`
+
+为避免 OKX API 频率限制，加密货币 OHLC 数据采用数据库缓存方案：
+
+```python
+CREATE TABLE IF NOT EXISTS crypto_ohlc (
+    symbol        TEXT NOT NULL,
+    timestamp     INTEGER NOT NULL,
+    date          TEXT NOT NULL,
+    open          REAL,
+    high          REAL,
+    low           REAL,
+    close         REAL,
+    volume        REAL,
+    bar           TEXT NOT NULL,
+    PRIMARY KEY (symbol, timestamp, bar)
+);
+
+CREATE TABLE IF NOT EXISTS crypto_metadata (
+    symbol TEXT NOT NULL,
+    bar TEXT NOT NULL,
+    last_update TEXT,
+    data_start TEXT,
+    data_end TEXT,
+    total_records INTEGER,
+    PRIMARY KEY (symbol, bar)
+);
+```
+
+### 4.3 数据抓取脚本
+
+**文件**: `scripts/fetch_crypto_ohlc.py`
+
+定期运行脚本从 OKX 获取数据并存储到数据库：
+- 初始化时抓取历史数据（最多 300 条）
+- 定时任务定期更新最新数据
+- 避免频率限制问题
+
+### 4.4 OHLC 路由改造
 
 **文件**: `app/api/routes/ohlc.py`
 
@@ -287,32 +327,32 @@ async def get_ticker(self, inst_id: str) -> Dict[str, Any]:
 
 ```python
 @router.get("/{symbol}/ohlc", response_model=OHLCResponse)
-async def get_stock_ohlc(
+def get_stock_ohlc(
     symbol: str,
     start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     interval: str = Query("day", description="Time granularity"),
 ):
     """获取 OHLC 数据（支持股票和加密货币）
-    
+
     - 股票 symbol: AAPL, MSFT (从数据库获取)
-    - 加密货币 symbol: BTC-USDT, ETH-USDT (从 OKX 获取)
+    - 加密货币 symbol: BTC-USDT, ETH-USDT (从数据库获取)
     """
     # 判断是否为加密货币（包含连字符）
     if "-" in symbol:
-        return await get_crypto_ohlc(symbol, start, end, interval)
+        return get_crypto_ohlc_from_db(symbol, start, end, interval)
     else:
         return get_stock_ohlc_from_db(symbol, start, end, interval)
 
 
-async def get_crypto_ohlc(
+def get_crypto_ohlc_from_db(
     symbol: str,
     start: Optional[str],
     end: Optional[str],
     interval: str
 ) -> OHLCResponse:
-    """从 OKX 获取加密货币 OHLC 数据"""
-    
+    """从数据库获取加密货币 OHLC 数据"""
+
     # 时间周期映射
     interval_map = {
         "15m": "15m",
@@ -334,40 +374,46 @@ async def get_crypto_ohlc(
             status_code=400,
             detail=f"Invalid interval for crypto: {interval}"
         )
-    
+
+    # 设置默认日期范围
+    if not end:
+        end = datetime.now().date().isoformat()
+    if not start:
+        if bar in ["15m", "1H"]:
+            start = (datetime.now().date() - timedelta(days=7)).isoformat()
+        elif bar in ["4H", "1D"]:
+            start = (datetime.now().date() - timedelta(days=90)).isoformat()
+        else:
+            start = (datetime.now().date() - timedelta(days=365)).isoformat()
+
     try:
-        # 获取 OKX 客户端（使用 demo 模式）
-        from app.okx import get_okx_client
-        client = get_okx_client("demo")
-        
-        # 获取 K线数据
-        candles = await client.get_candles(
-            inst_id=symbol,
-            bar=bar,
-            limit=300
-        )
-        
+        # 从数据库查询
+        from app.database.crypto_ohlc import get_crypto_ohlc
+        data = get_crypto_ohlc(symbol, bar, start, end)
+
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No OHLC data found for {symbol}. Please run data sync script first."
+            )
+
         # 转换为统一格式
-        ohlc_records = []
-        for candle in candles:
-            # OKX 时间戳是毫秒，转换为日期字符串
-            timestamp = int(candle["ts"]) / 1000
-            date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
-            
-            ohlc_records.append(OHLCRecord(
-                date=date_str,
-                open=float(candle["o"]),
-                high=float(candle["h"]),
-                low=float(candle["l"]),
-                close=float(candle["c"]),
-                volume=float(candle["vol"])
-            ))
-        
-        # 按日期排序（从旧到新）
-        ohlc_records.sort(key=lambda x: x.date)
-        
+        ohlc_records = [
+            OHLCRecord(
+                date=record["date"],
+                open=record["open"],
+                high=record["high"],
+                low=record["low"],
+                close=record["close"],
+                volume=record["volume"]
+            )
+            for record in data
+        ]
+
         return OHLCResponse(symbol=symbol, data=ohlc_records)
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch crypto OHLC for {symbol}: {e}")
         raise HTTPException(
@@ -594,8 +640,11 @@ try {
 ### 阶段 1: 后端基础功能
 1. 在 `OKXTradingClient` 中添加 `get_candles()` 和 `get_ticker()` 方法
 2. 编写单元测试验证 OKX API 调用
-3. 创建 `app/api/routes/crypto.py` 实现报价接口
-4. 改造 `app/api/routes/ohlc.py` 支持加密货币
+3. 创建 `crypto_ohlc` 数据库表和操作模块
+4. 创建数据抓取脚本 `scripts/fetch_crypto_ohlc.py`
+5. 运行脚本初始化数据
+6. 创建 `app/api/routes/crypto.py` 实现报价接口
+7. 改造 `app/api/routes/ohlc.py` 支持从数据库读取加密货币数据
 
 ### 阶段 2: 前端类型和 API
 1. 扩展 `types.ts` 添加 Crypto 相关类型
