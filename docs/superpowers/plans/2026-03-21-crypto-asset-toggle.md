@@ -479,7 +479,81 @@ CREATE TABLE IF NOT EXISTS crypto_metadata (
 
 - [ ] **Step 2: 创建 crypto_ohlc.py 数据操作模块**
 
-创建完整的数据库操作文件，包含 get_crypto_ohlc, upsert_crypto_ohlc, update_crypto_metadata, get_crypto_metadata 函数
+```python
+# app/database/crypto_ohlc.py
+"""Crypto OHLC data operations for the database."""
+
+import sqlite3
+import logging
+from typing import List, Dict, Optional
+from datetime import datetime
+
+from app.database.schema import get_conn
+
+logger = logging.getLogger(__name__)
+
+
+def get_crypto_ohlc(symbol: str, bar: str, start: str, end: str) -> List[Dict]:
+    """Query crypto OHLC data from database."""
+    conn = get_conn()
+    query = """
+        SELECT timestamp, date, open, high, low, close, volume
+        FROM crypto_ohlc
+        WHERE symbol = ? AND bar = ? AND date >= ? AND date <= ?
+        ORDER BY timestamp ASC
+    """
+    rows = conn.execute(query, (symbol, bar, start, end)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def upsert_crypto_ohlc(symbol: str, bar: str, data: List[Dict]):
+    """Insert or update crypto OHLC data (batch operation)."""
+    if not data:
+        return
+    conn = get_conn()
+    conn.executemany("""
+        INSERT INTO crypto_ohlc (symbol, timestamp, date, open, high, low, close, volume, bar)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, timestamp, bar) DO UPDATE SET
+            open = excluded.open,
+            high = excluded.high,
+            low = excluded.low,
+            close = excluded.close,
+            volume = excluded.volume,
+            date = excluded.date
+    """, [(symbol, d["timestamp"], d["date"], d["open"], d["high"], d["low"], d["close"], d["volume"], bar)
+          for d in data])
+    conn.commit()
+    conn.close()
+    logger.info(f"Upserted {len(data)} records for {symbol} ({bar})")
+
+
+def update_crypto_metadata(symbol: str, bar: str, start: str, end: str, total_records: int):
+    """Update metadata after crypto data sync."""
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO crypto_metadata (symbol, bar, last_update, data_start, data_end, total_records)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, bar) DO UPDATE SET
+            last_update = excluded.last_update,
+            data_end = excluded.data_end,
+            total_records = excluded.total_records
+    """, (symbol, bar, datetime.now().isoformat(), start, end, total_records))
+    conn.commit()
+    conn.close()
+
+
+def get_crypto_metadata(symbol: str, bar: str) -> Optional[Dict]:
+    """Get metadata for a crypto symbol and bar."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM crypto_metadata WHERE symbol = ? AND bar = ?",
+        (symbol, bar)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+```
 
 - [ ] **Step 3: 运行数据库迁移**
 
@@ -507,13 +581,83 @@ git commit -m "feat(db): add crypto_ohlc table and operations"
 
 - [ ] **Step 1: 创建数据抓取脚本**
 
-创建脚本支持：
-- 抓取 BTC-USDT, ETH-USDT 数据
-- 支持多个时间周期：15m, 1H, 4H, 1D, 1W, 1M
-- 每个请求间隔 0.5 秒避免频率限制
-- 使用 upsert_crypto_ohlc 存储数据
-- 更新 crypto_metadata
+```python
+# scripts/fetch_crypto_ohlc.py
+"""Fetch crypto OHLC data from OKX and store in database."""
 
+import asyncio
+import logging
+from datetime import datetime
+
+from app.okx import get_okx_client
+from app.database.crypto_ohlc import upsert_crypto_ohlc, update_crypto_metadata
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+CRYPTO_SYMBOLS = ["BTC-USDT", "ETH-USDT"]
+TIME_BARS = ["15m", "1H", "4H", "1D", "1W", "1M"]
+
+
+async def fetch_and_store(symbol: str, bar: str, limit: int = 300):
+    """Fetch OHLC data for a symbol and bar, then store in database."""
+    try:
+        logger.info(f"Fetching {symbol} {bar} data...")
+        client = get_okx_client("demo")
+        
+        candles = await client.get_candles(
+            inst_id=symbol,
+            bar=bar,
+            limit=limit
+        )
+        
+        if not candles:
+            logger.warning(f"No data returned for {symbol} {bar}")
+            return
+        
+        records = []
+        for candle in candles:
+            timestamp = int(candle["ts"])
+            date_str = datetime.fromtimestamp(timestamp / 1000).strftime("%Y-%m-%d %H:%M:%S")
+            
+            records.append({
+                "timestamp": timestamp,
+                "date": date_str,
+                "open": float(candle["o"]),
+                "high": float(candle["h"]),
+                "low": float(candle["l"]),
+                "close": float(candle["c"]),
+                "volume": float(candle["vol"])
+            })
+        
+        upsert_crypto_ohlc(symbol, bar, records)
+        
+        dates = [r["date"] for r in records]
+        update_crypto_metadata(
+            symbol=symbol,
+            bar=bar,
+            start=min(dates),
+            end=max(dates),
+            total_records=len(records)
+        )
+        
+        logger.info(f"Successfully stored {len(records)} records for {symbol} {bar}")
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch {symbol} {bar}: {e}")
+
+
+async def fetch_all():
+    """Fetch data for all symbols and bars."""
+    for symbol in CRYPTO_SYMBOLS:
+        for bar in TIME_BARS:
+            await fetch_and_store(symbol, bar)
+            await asyncio.sleep(0.5)  # Rate limiting
+
+
+if __name__ == "__main__":
+    asyncio.run(fetch_all())
+```
 - [ ] **Step 2: 测试脚本运行**
 
 ```bash
@@ -585,7 +729,87 @@ Expected: FAIL - 路由尝试从 stocks 表查询 BTC-USDT
 
 - [ ] **Step 3: 添加 get_crypto_ohlc_from_db 函数**
 
-在 ohlc.py 中添加函数，从 crypto_ohlc 表读取数据，支持 interval 映射
+```python
+# app/api/routes/ohlc.py
+# 在文件顶部添加导入
+from app.database.crypto_ohlc import get_crypto_ohlc
+from datetime import datetime, timedelta
+
+# 在 get_stock_ohlc_from_db 后添加此函数
+def get_crypto_ohlc_from_db(
+    symbol: str,
+    start: Optional[str],
+    end: Optional[str],
+    interval: str
+) -> OHLCResponse:
+    """从数据库获取加密货币 OHLC 数据"""
+    
+    # 时间周期映射
+    interval_map = {
+        "15m": "15m",
+        "1h": "1H",
+        "4h": "4H",
+        "1d": "1D",
+        "day": "1D",
+        "1w": "1W",
+        "week": "1W",
+        "1m": "1M",
+        "month": "1M",
+        "1y": "1Y",
+        "year": "1Y"
+    }
+    
+    bar = interval_map.get(interval.lower())
+    if not bar:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interval for crypto: {interval}"
+        )
+    
+    # Default to recent data if not specified
+    if not end:
+        end = datetime.now().date().isoformat()
+    if not start:
+        if bar in ["15m", "1H"]:
+            start = (datetime.now().date() - timedelta(days=7)).isoformat()
+        elif bar in ["4H", "1D"]:
+            start = (datetime.now().date() - timedelta(days=90)).isoformat()
+        else:
+            start = (datetime.now().date() - timedelta(days=365)).isoformat()
+    
+    try:
+        data = get_crypto_ohlc(symbol, bar, start, end)
+        
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No OHLC data found for {symbol}. Run fetch script first."
+            )
+        
+        ohlc_records = [
+            OHLCRecord(
+                date=record["date"],
+                open=record["open"],
+                high=record["high"],
+                low=record["low"],
+                close=record["close"],
+                volume=record["volume"]
+            )
+            for record in data
+        ]
+        
+        logger.info(f"Fetched {len(ohlc_records)} OHLC records for {symbol}")
+        return OHLCResponse(symbol=symbol, data=ohlc_records)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch crypto OHLC for {symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch crypto data: {str(e)}"
+        )
+```
 
 - [ ] **Step 4: 修改路由函数添加分发逻辑**
 
@@ -615,7 +839,7 @@ git add app/api/routes/ohlc.py tests/test_crypto_routes.py
 git commit -m "feat(api): extend OHLC route to support crypto from database"
 ```
 
-## Task 5: 扩展前端类型定义
+## Task 7: 扩展前端类型定义
 
 **Files:**
 - Modify: `frontend/src/lib/types.ts`
