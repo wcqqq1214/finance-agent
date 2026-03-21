@@ -564,14 +564,8 @@ class OKXTradingClient:
                 before=before
             )
 
-            # 验证响应
-            if result.get("code") != "0":
-                msg = result.get('msg', 'Unknown error')
-                logger.error(
-                    f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] "
-                    f"Failed to get candles: {msg}"
-                )
-                raise OKXError(msg, code=result.get("code"))
+            # Validate response
+            self._validate_response(result)
 
             # 转换数据格式
             candles = []
