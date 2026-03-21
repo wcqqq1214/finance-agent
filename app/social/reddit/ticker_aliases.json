@@ -1,0 +1,38 @@
+{
+  "NVDA": {
+    "aliases": ["NVDA", "Nvidia", "Nvidia Corp"],
+    "type": "stock"
+  },
+  "AAPL": {
+    "aliases": ["AAPL", "Apple"],
+    "type": "stock"
+  },
+  "MSFT": {
+    "aliases": ["MSFT", "Microsoft", "Microsoft Corp"],
+    "type": "stock"
+  },
+  "GOOGL": {
+    "aliases": ["GOOGL", "GOOG", "Google", "Alphabet"],
+    "type": "stock"
+  },
+  "AMZN": {
+    "aliases": ["AMZN", "Amazon"],
+    "type": "stock"
+  },
+  "TSLA": {
+    "aliases": ["TSLA", "Tesla"],
+    "type": "stock"
+  },
+  "META": {
+    "aliases": ["META", "Meta", "Facebook", "FB"],
+    "type": "stock"
+  },
+  "BTC": {
+    "aliases": ["BTC", "Bitcoin"],
+    "type": "crypto"
+  },
+  "ETH": {
+    "aliases": ["ETH", "Ethereum"],
+    "type": "crypto"
+  }
+}
