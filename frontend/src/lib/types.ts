@@ -118,4 +118,20 @@ export interface DataStatusResponse {
   total_records: number;
 }
 
-export type TimeRange = 'D' | 'W' | 'M' | 'Y';
+export type TimeRange = 'D' | 'W' | 'M' | 'Y' | '15M' | '1H' | '4H' | '1D' | '1W' | '1M' | '1Y';
+
+// Crypto Types
+export interface CryptoQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changeAmount: number;
+  volume24h: number;
+  high24h: number;
+  low24h: number;
+}
+
+export interface CryptoQuotesResponse {
+  quotes: CryptoQuote[];
+}

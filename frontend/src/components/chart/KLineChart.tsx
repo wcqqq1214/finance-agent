@@ -68,6 +68,13 @@ export function KLineChart({ selectedStock }: KLineChartProps) {
         'W': 'week',
         'M': 'month',
         'Y': 'year',
+        '15M': '15min',
+        '1H': 'hour',
+        '4H': '4hour',
+        '1D': 'day',
+        '1W': 'week',
+        '1M': 'month',
+        '1Y': 'year',
       };
 
       const response = await api.getOHLC(

@@ -17,6 +17,13 @@ export function TimeRangeSelector({ value, onChange, disabled }: TimeRangeSelect
     'W': 'Week',
     'M': 'Month',
     'Y': 'Year',
+    '15M': '15 Min',
+    '1H': '1 Hour',
+    '4H': '4 Hour',
+    '1D': '1 Day',
+    '1W': '1 Week',
+    '1M': '1 Month',
+    '1Y': '1 Year',
   };
 
   return (
