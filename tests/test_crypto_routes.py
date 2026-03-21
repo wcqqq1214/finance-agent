@@ -132,3 +132,46 @@ class TestCryptoQuotesRoute:
         assert response.status_code == 500
         data = response.json()
         assert 'detail' in data
+
+
+class TestCryptoOHLCRoute:
+    """Tests for GET /api/stocks/{symbol}/ohlc endpoint with crypto symbols."""
+
+    def test_get_crypto_ohlc_success(self, client):
+        """Test successful OHLC retrieval for BTC-USDT with 1h interval."""
+        response = client.get("/api/stocks/BTC-USDT/ohlc?interval=1h")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['symbol'] == 'BTC-USDT'
+        assert 'data' in data
+        assert isinstance(data['data'], list)
+        # Should have data if database was populated in Task 5
+        if len(data['data']) > 0:
+            record = data['data'][0]
+            assert 'date' in record
+            assert 'open' in record
+            assert 'high' in record
+            assert 'low' in record
+            assert 'close' in record
+            assert 'volume' in record
+
+    def test_get_stock_ohlc_still_works(self, client):
+        """Test that stock OHLC still works for AAPL with day interval."""
+        response = client.get("/api/stocks/AAPL/ohlc?interval=day")
+
+        # Should return 200 if AAPL data exists, or 404 if not
+        assert response.status_code in [200, 404]
+        if response.status_code == 200:
+            data = response.json()
+            assert data['symbol'] == 'AAPL'
+            assert 'data' in data
+
+    def test_get_crypto_ohlc_invalid_interval(self, client):
+        """Test that invalid interval returns 400 error."""
+        response = client.get("/api/stocks/BTC-USDT/ohlc?interval=invalid")
+
+        assert response.status_code == 400
+        data = response.json()
+        assert 'detail' in data
+        assert 'Invalid interval' in data['detail']

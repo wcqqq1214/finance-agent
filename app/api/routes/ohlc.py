@@ -7,6 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.database import get_ohlc, get_metadata, get_ohlc_aggregated
+from app.database.crypto_ohlc import get_crypto_ohlc
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,14 +35,107 @@ class DataStatusResponse(BaseModel):
     total_records: int
 
 
-@router.get("/{symbol}/ohlc", response_model=OHLCResponse)
-def get_stock_ohlc(
+def get_crypto_ohlc_from_db(
     symbol: str,
-    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    interval: str = Query("day", description="Time granularity: day, week, month, year"),
-):
-    """Get OHLC data for a stock symbol with optional time aggregation."""
+    interval: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> OHLCResponse:
+    """Get OHLC data for a crypto symbol from database.
+
+    Args:
+        symbol: Crypto symbol (e.g., 'BTC-USDT')
+        interval: Time interval (15m, 1h, 4h, 1d/day, 1w/week, 1m/month, 1y/year)
+        start: Start date (YYYY-MM-DD)
+        end: End date (YYYY-MM-DD)
+
+    Returns:
+        OHLCResponse with crypto OHLC data
+    """
+    # Map interval to bar format
+    interval_to_bar = {
+        '15m': '15m',
+        '1h': '1H',
+        '4h': '4H',
+        '1d': '1D',
+        'day': '1D',
+        '1w': '1W',
+        'week': '1W',
+        '1m': '1M',
+        'month': '1M',
+        '1y': '1Y',
+        'year': '1Y',
+    }
+
+    bar = interval_to_bar.get(interval)
+    if not bar:
+        valid_intervals = list(interval_to_bar.keys())
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interval. Must be one of: {', '.join(valid_intervals)}"
+        )
+
+    # Set default date ranges based on bar
+    if not end:
+        end = datetime.now().date().isoformat()
+    if not start:
+        if bar in ['15m', '1H']:
+            # 7 days for short intervals
+            start = (datetime.now().date() - timedelta(days=7)).isoformat()
+        elif bar in ['4H', '1D']:
+            # 90 days for medium intervals
+            start = (datetime.now().date() - timedelta(days=90)).isoformat()
+        else:
+            # 365 days for long intervals
+            start = (datetime.now().date() - timedelta(days=365)).isoformat()
+
+    # Query database
+    try:
+        data = get_crypto_ohlc(symbol, bar, start, end)
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No OHLC data found for {symbol}"
+            )
+
+        # Transform to OHLCRecord list
+        records = [
+            OHLCRecord(
+                date=record['date'],
+                open=record['open'],
+                high=record['high'],
+                low=record['low'],
+                close=record['close'],
+                volume=record['volume']
+            )
+            for record in data
+        ]
+
+        return OHLCResponse(symbol=symbol, data=records)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch crypto OHLC for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+def get_stock_ohlc_from_db(
+    symbol: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    interval: str = "day",
+) -> OHLCResponse:
+    """Get OHLC data for a stock symbol from database.
+
+    Args:
+        symbol: Stock symbol (e.g., 'AAPL')
+        start: Start date (YYYY-MM-DD)
+        end: End date (YYYY-MM-DD)
+        interval: Time interval (day, week, month, year)
+
+    Returns:
+        OHLCResponse with stock OHLC data
+    """
     # Validate interval
     valid_intervals = ["day", "week", "month", "year"]
     if interval not in valid_intervals:
@@ -85,6 +179,21 @@ def get_stock_ohlc(
     except Exception as e:
         logger.error(f"Failed to fetch OHLC for {symbol}: {e}")
         raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.get("/{symbol}/ohlc", response_model=OHLCResponse)
+def get_stock_ohlc(
+    symbol: str,
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    interval: str = Query("day", description="Time granularity: day, week, month, year"),
+):
+    """Get OHLC data for a stock or crypto symbol with optional time aggregation."""
+    # Check if this is a crypto symbol (contains hyphen)
+    if "-" in symbol:
+        return get_crypto_ohlc_from_db(symbol, interval, start, end)
+    else:
+        return get_stock_ohlc_from_db(symbol, start, end, interval)
 
 
 @router.get("/{symbol}/data-status", response_model=DataStatusResponse)
