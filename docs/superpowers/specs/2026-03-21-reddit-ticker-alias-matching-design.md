@@ -100,7 +100,7 @@ from functools import lru_cache
 from pathlib import Path
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ def _filter_posts_by_asset(
    - 包含 Magnificent Seven + BTC + ETH
 
 2. **app/social/reddit/tools.py** (修改)
-   - 在文件顶部添加 import: `import logging` (注：`import re`, `import json` 已存在)
+   - 在文件顶部添加 import: `import logging` (注：`import re`, `import json`, `from typing import Optional` 已存在)
    - 新增 `logger = logging.getLogger(__name__)` (第 26 行之前插入)
    - 新增 `_load_ticker_aliases()` 函数（第 68 行之前插入）
    - 新增 `_compile_ticker_regex()` 函数（第 68 行之前插入）
