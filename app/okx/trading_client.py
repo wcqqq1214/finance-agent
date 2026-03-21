@@ -1,7 +1,7 @@
 """OKX交易客户端"""
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .exceptions import OKXRateLimitError
@@ -512,6 +512,94 @@ class OKXTradingClient:
             })
 
         return orders
+
+    async def get_candles(
+        self,
+        inst_id: str,
+        bar: str = "15m",
+        limit: int = 300,
+        after: str = "",
+        before: str = ""
+    ) -> List[Dict[str, Any]]:
+        """获取K线数据
+
+        Args:
+            inst_id: 产品ID，如 BTC-USDT
+            bar: K线周期 (15m, 1H, 4H, 1D, 1W, 1M, 1Y)
+            limit: 返回数据条数，最大300
+            after: 请求此时间戳之前的数据
+            before: 请求此时间戳之后的数据
+
+        Returns:
+            List of candle data:
+            [
+              {
+                "ts": "1597026383085",      # 时间戳
+                "o": "3.721",                # 开盘价
+                "h": "3.743",                # 最高价
+                "l": "3.677",                # 最低价
+                "c": "3.708",                # 收盘价
+                "vol": "8422410"             # 成交量
+              },
+              ...
+            ]
+
+        Raises:
+            OKXError: API错误
+        """
+        from .exceptions import OKXError
+
+        try:
+            logger.info(
+                f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] "
+                f"Fetching candles for {inst_id}, bar={bar}, limit={limit}"
+            )
+
+            result = await asyncio.to_thread(
+                self.market_api.get_candlesticks,
+                instId=inst_id,
+                bar=bar,
+                limit=str(limit),
+                after=after,
+                before=before
+            )
+
+            # 验证响应
+            if result.get("code") != "0":
+                msg = result.get('msg', 'Unknown error')
+                logger.error(
+                    f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] "
+                    f"Failed to get candles: {msg}"
+                )
+                raise OKXError(msg, code=result.get("code"))
+
+            # 转换数据格式
+            candles = []
+            for item in result.get("data", []):
+                candles.append({
+                    "ts": item[0],
+                    "o": item[1],
+                    "h": item[2],
+                    "l": item[3],
+                    "c": item[4],
+                    "vol": item[5]
+                })
+
+            logger.info(
+                f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] "
+                f"Successfully fetched {len(candles)} candles for {inst_id}"
+            )
+
+            return candles
+
+        except OKXError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] "
+                f"Unexpected error getting candles: {e}"
+            )
+            raise OKXError(f"Failed to get candles: {str(e)}")
 
     def _validate_response(self, response: Dict) -> None:
         """验证OKX API响应
