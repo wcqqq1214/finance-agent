@@ -142,3 +142,45 @@ def test_select_top_posts_limit_exceeds_available():
     assert len(selected) == 1
 
 
+def test_dynamic_filtering_pipeline_integration(monkeypatch):
+    from app.social.reddit import tools as reddit_tools
+    from app.social.reddit.json_client import RedditPost
+    from typing import Any, Dict, List, Tuple
+
+    # Mock fetch_subreddit_top_posts_json to return posts with asset mentions
+    def mock_fetch_subreddit(subreddit, time_filter, limit, user_agent):
+        if subreddit == "stocks":
+            return [
+                RedditPost(title="NVDA earnings beat", selftext="Great quarter", permalink="/stocks/1", score=200, created_utc=1.0),
+                RedditPost(title="Market news", selftext="No specific stock", permalink="/stocks/2", score=50, created_utc=2.0),
+            ]
+        elif subreddit == "wallstreetbets":
+            return [
+                RedditPost(title="NVDA to the moon", selftext="Diamond hands", permalink="/wsb/1", score=300, created_utc=3.0),
+            ]
+        return []
+
+    # Mock fetch_post_and_comments_json
+    def mock_fetch_post(permalink, limit, user_agent):
+        post = RedditPost(title="Mock", selftext="Mock", permalink=permalink, score=100, created_utc=1.0)
+        comments = [{"body": "Comment 1", "score": 10}, {"body": "Comment 2", "score": 5}]
+        return post, comments
+
+    monkeypatch.setattr(reddit_tools, "fetch_subreddit_top_posts_json", mock_fetch_subreddit)
+    monkeypatch.setattr(reddit_tools, "fetch_post_and_comments_json", mock_fetch_post)
+
+    text, meta = reddit_tools._get_reddit_discussion_via_json(
+        asset="NVDA",
+        subreddits=["stocks", "wallstreetbets", "investing"],
+        top_posts_limit=50,
+        top_comments_per_post=3,
+        time_filter="day"
+    )
+
+    # Verify metadata
+    assert meta["posts_fetched_total"] >= 2  # At least 2 posts fetched
+    assert meta["posts_after_filter"] == 2   # 2 posts mention NVDA
+    assert meta["posts_selected"] == 2       # Both selected (limit not reached)
+    assert meta["post_count"] == 2
+
+

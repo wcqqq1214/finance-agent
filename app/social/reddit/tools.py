@@ -184,61 +184,75 @@ def _get_reddit_discussion_via_json(
     post_urls: List[str] = []
     errors: List[str] = []
 
+    # Phase 1: Wide fetch - collect all posts from all subreddits
+    all_posts: List[RedditPost] = []
     for sr in subreddits:
         try:
             posts = fetch_subreddit_top_posts_json(
                 sr, time_filter=time_filter, limit=top_posts_limit, user_agent=user_agent
             )
+            all_posts.extend(posts)
         except Exception as exc:
-            errors.append(f"subreddit_top_json_failed:{sr}:{type(exc).__name__}")
+            errors.append(f"subreddit_fetch_failed:{sr}:{type(exc).__name__}")
             continue
 
-        if not posts:
-            continue
+    posts_fetched_total = len(all_posts)
 
-        blocks.append(f"== r/{sr} ==")
-        for p in posts:
-            permalink = str(p.get("permalink") or "")
-            if permalink:
-                post_urls.append(f"https://old.reddit.com{permalink}")
+    # Phase 2: Filter posts by asset ticker
+    filtered_posts = _filter_posts_by_asset(all_posts, asset)
+    posts_after_filter = len(filtered_posts)
 
-            try:
-                post, comments = fetch_post_and_comments_json(
-                    permalink,
-                    limit=50,
-                    user_agent=user_agent,
-                )
-            except Exception as exc:
-                errors.append(f"post_json_failed:{sr}:{type(exc).__name__}")
-                continue
+    # Phase 3: Global sort and select top N
+    # Use top_posts_limit as final_posts_limit for now (will use config later)
+    selected_posts = _select_top_posts_globally(filtered_posts, limit=top_posts_limit)
+    posts_selected = len(selected_posts)
 
-            src = post or p
-            title = _clean_text(str(src.get("title") or ""))
-            body = _clean_text(str(src.get("selftext") or ""))
-            top_comments = select_top_comments(comments, k=top_comments_per_post)
-            top_comments_clean = [_clean_text(c) for c in top_comments if c]
+    # Phase 4: Fetch details for selected posts only
+    for p in selected_posts:
+        permalink = str(p.get("permalink") or "")
+        if permalink:
+            post_urls.append(f"https://old.reddit.com{permalink}")
 
-            block = _format_post_block(
-                title=title,
-                body=body,
-                comments=top_comments_clean,
-                score=int(src.get("score") or 0) if src.get("score") is not None else None,
-                created_utc=float(src.get("created_utc") or 0.0) if src.get("created_utc") else None,
+        try:
+            post, comments = fetch_post_and_comments_json(
+                permalink,
+                limit=50,
+                user_agent=user_agent,
             )
-            if block:
-                blocks.append(block)
-                blocks.append("")
-                post_count += 1
-                comment_count += len(top_comments_clean)
+        except Exception as exc:
+            errors.append(f"post_detail_failed:{type(exc).__name__}")
+            continue
+
+        src = post or p
+        title = _clean_text(str(src.get("title") or ""))
+        body = _clean_text(str(src.get("selftext") or ""))
+        top_comments = select_top_comments(comments, k=top_comments_per_post)
+        top_comments_clean = [_clean_text(c) for c in top_comments if c]
+
+        block = _format_post_block(
+            title=title,
+            body=body,
+            comments=top_comments_clean,
+            score=int(src.get("score") or 0) if src.get("score") is not None else None,
+            created_utc=float(src.get("created_utc") or 0.0) if src.get("created_utc") else None,
+        )
+        if block:
+            blocks.append(block)
+            blocks.append("")
+            post_count += 1
+            comment_count += len(top_comments_clean)
 
     text = _clean_text("\n".join(blocks))
     meta: Dict[str, Any] = {
         "source": "json",
         "asset": asset,
         "subreddits": list(subreddits),
+        "posts_fetched_total": posts_fetched_total,
+        "posts_after_filter": posts_after_filter,
+        "posts_selected": posts_selected,
         "post_count": post_count,
         "comment_count": comment_count,
-        "post_urls": post_urls[: min(len(post_urls), top_posts_limit)],
+        "post_urls": post_urls[:min(len(post_urls), top_posts_limit)],
         "errors": errors,
     }
     return text, meta
