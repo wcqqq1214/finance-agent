@@ -203,8 +203,9 @@ def _get_reddit_discussion_via_json(
     posts_after_filter = len(filtered_posts)
 
     # Phase 3: Global sort and select top N
-    # Use top_posts_limit as final_posts_limit for now (will use config later)
-    selected_posts = _select_top_posts_globally(filtered_posts, limit=top_posts_limit)
+    # Use hardcoded 15 (final_posts_limit from config) to limit API calls
+    # This ensures we only fetch details for the top 15 posts, not all 50
+    selected_posts = _select_top_posts_globally(filtered_posts, limit=15)
     posts_selected = len(selected_posts)
 
     # Phase 4: Fetch details for selected posts only
