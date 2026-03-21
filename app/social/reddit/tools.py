@@ -129,23 +129,42 @@ def _filter_posts_by_asset(
     posts: List[RedditPost],
     asset: str
 ) -> List[RedditPost]:
-    """Filter posts that mention the target asset ticker.
+    """使用别名字典和正则词边界过滤帖子。
+
+    匹配规则：
+    1. 通过 _compile_ticker_regex() 获取缓存的正则表达式
+    2. 正则模式：\$?\b(alias1|alias2|...)\b
+       - \$? : 可选的美元符号前缀（支持 $NVDA 格式）
+       - \b  : 词边界，避免误匹配（NVDA 不会匹配 NVDAX）
+       - re.IGNORECASE : 忽略大小写
+    3. 在帖子的 title 和 selftext 中搜索匹配
+
+    注意：与旧实现的行为变化
+    - 旧实现：将文本转为大写后匹配（title.upper()）
+    - 新实现：使用 re.IGNORECASE，保持原文本不变
+    - 影响：无功能差异，但正则匹配更高效
 
     Args:
-        posts: List of Reddit posts (RedditPost TypedDict instances)
-        asset: Asset ticker (e.g., "NVDA")
+        posts: Reddit 帖子列表（RedditPost TypedDict 实例）
+        asset: 资产代码（如 "NVDA"）
 
     Returns:
-        Filtered list of posts that contain the asset ticker
+        匹配的帖子列表
     """
-    asset_upper = asset.upper()
+    # 获取编译后的正则表达式（带缓存）
+    regex = _compile_ticker_regex(asset)
+    if regex is None:
+        # 别名列表为空，无法匹配
+        return []
+
     filtered = []
-
     for post in posts:
-        title = (post.get("title") or "").upper()
-        selftext = (post.get("selftext") or "").upper()
+        title = post.get("title") or ""
+        selftext = post.get("selftext") or ""
+        combined_text = f"{title} {selftext}"
 
-        if asset_upper in title or asset_upper in selftext:
+        match = regex.search(combined_text)
+        if match:
             filtered.append(post)
 
     return filtered

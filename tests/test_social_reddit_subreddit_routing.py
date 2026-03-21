@@ -293,3 +293,171 @@ def test_compile_ticker_regex_fallback():
         # 应该回退到只匹配 ticker 本身
         assert regex.search("UNKNOWN")
         assert not regex.search("UnknownCompany")
+
+
+def test_filter_with_ticker_exact_match():
+    """测试精确匹配 ticker，避免误匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="NVDA hits new high", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="NVDAX is different", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="Check NVDA performance", selftext="", permalink="/3", score=80, created_utc=3.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 应该只匹配 NVDA，不匹配 NVDAX
+    assert len(filtered) == 2
+    assert filtered[0]["title"] == "NVDA hits new high"
+    assert filtered[1]["title"] == "Check NVDA performance"
+
+
+def test_filter_with_company_name():
+    """测试公司名称别名匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="Nvidia earnings beat", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="AMD discussion", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="Nvidia Corp announces new GPU", selftext="", permalink="/3", score=80, created_utc=3.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 应该匹配 Nvidia 和 Nvidia Corp
+    assert len(filtered) == 2
+    assert "Nvidia" in filtered[0]["title"]
+    assert "Nvidia Corp" in filtered[1]["title"]
+
+
+def test_filter_with_cashtag():
+    """测试 $NVDA 格式匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="$NVDA to the moon", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="Buying $TSLA", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="$NVDA calls printing", selftext="", permalink="/3", score=80, created_utc=3.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 应该匹配 $NVDA
+    assert len(filtered) == 2
+    assert "$NVDA" in filtered[0]["title"]
+    assert "$NVDA" in filtered[1]["title"]
+
+
+def test_filter_no_false_positive():
+    """测试词边界防止误匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="NVDAX is a different ticker", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="Visit mynvda.com", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="NVDA_OPTIONS", selftext="", permalink="/3", score=80, created_utc=3.0),
+        RedditPost(title="Real NVDA discussion", selftext="", permalink="/4", score=120, created_utc=4.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 只有最后一个应该匹配
+    assert len(filtered) == 1
+    assert filtered[0]["title"] == "Real NVDA discussion"
+
+
+def test_filter_case_insensitive():
+    """测试大小写不敏感匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="nvidia is bullish", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="NVIDIA announces", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="Nvidia Corp", selftext="", permalink="/3", score=80, created_utc=3.0),
+        RedditPost(title="nvda options", selftext="", permalink="/4", score=120, created_utc=4.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 所有变体都应该匹配
+    assert len(filtered) == 4
+
+
+def test_filter_with_possessive():
+    """测试所有格形式匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="Nvidia's earnings", selftext="", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="NVDA's performance", selftext="", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="AMD's quarter", selftext="", permalink="/3", score=80, created_utc=3.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 应该匹配 Nvidia's 和 NVDA's
+    assert len(filtered) == 2
+    assert "Nvidia's" in filtered[0]["title"]
+    assert "NVDA's" in filtered[1]["title"]
+
+
+def test_filter_selftext_matching():
+    """测试 selftext 字段匹配"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+
+    posts = [
+        RedditPost(title="Market update", selftext="NVDA looking strong", permalink="/1", score=100, created_utc=1.0),
+        RedditPost(title="Tech stocks", selftext="AMD and TSLA moving", permalink="/2", score=50, created_utc=2.0),
+        RedditPost(title="Discussion", selftext="Nvidia earnings beat expectations", permalink="/3", score=80, created_utc=3.0),
+    ]
+
+    filtered = _filter_posts_by_asset(posts, "NVDA")
+
+    # 应该匹配 selftext 中的 NVDA 和 Nvidia
+    assert len(filtered) == 2
+    assert "NVDA" in filtered[0]["selftext"]
+    assert "Nvidia" in filtered[1]["selftext"]
+
+
+def test_filter_empty_aliases():
+    """测试空别名列表返回空结果"""
+    from app.social.reddit.tools import _filter_posts_by_asset
+    from app.social.reddit.json_client import RedditPost
+    from unittest.mock import patch
+
+    posts = [
+        RedditPost(title="UNKNOWN ticker", selftext="", permalink="/1", score=100, created_utc=1.0),
+    ]
+
+    # Mock _compile_ticker_regex 返回 None（模拟空别名列表）
+    with patch("app.social.reddit.tools._compile_ticker_regex", return_value=None):
+        filtered = _filter_posts_by_asset(posts, "UNKNOWN")
+        assert len(filtered) == 0
+
+
+def test_regex_caching():
+    """测试正则表达式缓存机制"""
+    from app.social.reddit.tools import _compile_ticker_regex
+
+    # 清除缓存
+    _compile_ticker_regex.cache_clear()
+
+    # 第一次调用
+    regex1 = _compile_ticker_regex("NVDA")
+    cache_info1 = _compile_ticker_regex.cache_info()
+
+    # 第二次调用（应该命中缓存）
+    regex2 = _compile_ticker_regex("NVDA")
+    cache_info2 = _compile_ticker_regex.cache_info()
+
+    # 验证缓存命中
+    assert regex1 is regex2
+    assert cache_info2.hits == cache_info1.hits + 1
