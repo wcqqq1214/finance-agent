@@ -67,22 +67,33 @@ async def download_daily_data(
         # Parse CSV
         result = []
         reader = csv.reader(io.StringIO(csv_content))
-        for row in reader:
+        for row_num, row in enumerate(reader, 1):
             if not row or len(row) < 6:
                 continue
 
-            timestamp_ms = int(row[0])
-            dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+            try:
+                timestamp_ms = int(row[0])
 
-            result.append({
-                'timestamp': timestamp_ms,
-                'date': dt.isoformat(),
-                'open': float(row[1]),
-                'high': float(row[2]),
-                'low': float(row[3]),
-                'close': float(row[4]),
-                'volume': float(row[5])
-            })
+                # Validate timestamp is in milliseconds (reasonable range)
+                # Valid range: 2000-01-01 to 2100-01-01
+                if timestamp_ms < 946684800000 or timestamp_ms > 4102444800000:
+                    logger.warning(f"Invalid timestamp {timestamp_ms} in row {row_num}, skipping")
+                    continue
+
+                dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+
+                result.append({
+                    'timestamp': timestamp_ms,
+                    'date': dt.isoformat(),
+                    'open': float(row[1]),
+                    'high': float(row[2]),
+                    'low': float(row[3]),
+                    'close': float(row[4]),
+                    'volume': float(row[5])
+                })
+            except (ValueError, OSError) as e:
+                logger.warning(f"Failed to parse row {row_num}: {e}, skipping")
+                continue
 
         logger.info(f"Downloaded {len(result)} records for {symbol} {interval} {target_date}")
 
