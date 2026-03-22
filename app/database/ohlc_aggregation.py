@@ -30,14 +30,15 @@ def aggregate_ohlc(
     df = df.set_index('datetime')
 
     # Map interval to pandas frequency
+    # Note: In pandas 2.x, 'T' is deprecated, use 'min' for minutes
     interval_to_freq = {
-        '5m': '5T',    # 5 minutes
-        '15m': '15T',  # 15 minutes
-        '30m': '30T',  # 30 minutes
-        '1h': '1H',    # 1 hour
-        '4h': '4H',    # 4 hours
-        '1d': '1D',    # 1 day
-        '1w': '1W',    # 1 week
+        '5m': '5min',   # 5 minutes
+        '15m': '15min', # 15 minutes
+        '30m': '30min', # 30 minutes
+        '1h': '1h',     # 1 hour
+        '4h': '4h',     # 4 hours
+        '1d': '1D',     # 1 day
+        '1w': '1W',     # 1 week
     }
 
     freq = interval_to_freq.get(target_interval)
