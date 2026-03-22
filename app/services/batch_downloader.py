@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 
 BINANCE_VISION_BASE = "https://data.binance.vision/data/spot/daily/klines"
 
+# Binance Vision changed timestamp format on 2025-01-01
+# Before: milliseconds (13 digits)
+# After: microseconds (16 digits)
+TIMESTAMP_FORMAT_CHANGE_DATE = date(2025, 1, 1)
+
 
 def get_download_url(symbol: str, interval: str, target_date: date) -> str:
     """
@@ -49,10 +54,16 @@ async def download_daily_data(
         timestamp, date, open, high, low, close, volume
 
     Note:
+        Binance Vision changed timestamp format on 2025-01-01:
+        - Before 2025-01-01: milliseconds (13 digits)
+        - From 2025-01-01: microseconds (16 digits)
         Returns empty list if data is not available (404) or on error.
     """
     url = get_download_url(symbol, interval, target_date)
     logger.info(f"Downloading {symbol} {interval} for {target_date} from {url}")
+
+    # Determine expected timestamp format based on date
+    use_microseconds = target_date >= TIMESTAMP_FORMAT_CHANGE_DATE
 
     try:
         async with httpx.AsyncClient() as client:
@@ -74,14 +85,25 @@ async def download_daily_data(
             try:
                 timestamp_raw = int(row[0])
 
-                # Auto-detect timestamp format (milliseconds vs microseconds)
-                # Microseconds: > 10^15 (e.g., 1736065740000000)
-                # Milliseconds: < 10^15 (e.g., 1736065740000)
-                if timestamp_raw > 10**15:
-                    # Convert microseconds to milliseconds
-                    timestamp_ms = timestamp_raw // 1000
+                # Convert timestamp based on expected format
+                if use_microseconds:
+                    # Data from 2025-01-01 onwards: microseconds format
+                    # Verify it's actually in microseconds (16 digits)
+                    if timestamp_raw > 10**15:
+                        timestamp_ms = timestamp_raw // 1000
+                    else:
+                        # Fallback: might be milliseconds
+                        timestamp_ms = timestamp_raw
+                        logger.warning(f"Expected microseconds but got milliseconds for {target_date} row {row_num}")
                 else:
-                    timestamp_ms = timestamp_raw
+                    # Data before 2025-01-01: milliseconds format
+                    # Verify it's actually in milliseconds (13 digits)
+                    if timestamp_raw > 10**15:
+                        # Unexpected: got microseconds when expecting milliseconds
+                        timestamp_ms = timestamp_raw // 1000
+                        logger.warning(f"Expected milliseconds but got microseconds for {target_date} row {row_num}")
+                    else:
+                        timestamp_ms = timestamp_raw
 
                 # Validate timestamp is reasonable (2000-01-01 to 2100-01-01)
                 if timestamp_ms < 946684800000 or timestamp_ms > 4102444800000:
