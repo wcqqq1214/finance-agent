@@ -1,14 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import asyncio
 import logging
 import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from app.tasks.update_ohlc import update_daily_ohlc
 from app.database.agent_history import init_db as init_agent_history_db
-from app.services.realtime_agent import warmup_hot_cache
+from app.services.realtime_agent import warmup_hot_cache, update_hot_cache_loop
+from app.services.batch_downloader import download_daily_data
 
 from .models import HealthResponse
 from .routes import analyze, reports, system, settings, stocks, ohlc, history, okx, crypto, crypto_klines
@@ -17,6 +19,27 @@ logger = logging.getLogger(__name__)
 
 # Create scheduler
 scheduler = BackgroundScheduler()
+
+# Symbols and intervals for batch downloads
+CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+CRYPTO_INTERVALS = ["1m", "1d"]
+
+
+def daily_crypto_download():
+    """Download yesterday's crypto data from Binance Vision."""
+    logger.info("Starting daily crypto data download...")
+    yesterday = date.today() - timedelta(days=1)
+
+    for symbol in CRYPTO_SYMBOLS:
+        for interval in CRYPTO_INTERVALS:
+            try:
+                # Run async function in sync context
+                import asyncio
+                asyncio.run(download_daily_data(symbol, interval, yesterday))
+            except Exception as e:
+                logger.error(f"Failed to download {symbol} {interval} for {yesterday}: {e}")
+
+    logger.info("Daily crypto data download completed")
 
 
 @asynccontextmanager
@@ -35,6 +58,20 @@ async def lifespan(app: FastAPI):
     await warmup_hot_cache()
     logger.info("✓ Hot cache warmed up")
 
+    # Start hot cache update loop as background task
+    update_task = asyncio.create_task(update_hot_cache_loop())
+    logger.info("✓ Hot cache update loop started")
+
+    # Schedule daily crypto data download at 08:00 UTC
+    scheduler.add_job(
+        daily_crypto_download,
+        'cron',
+        hour=8,
+        minute=0,
+        id='daily_crypto_download'
+    )
+    logger.info("✓ Scheduled daily crypto download at 08:00 UTC")
+
     # Update daily after US market close (UTC 21:30 = EST 16:30)
     scheduler.add_job(
         update_daily_ohlc,
@@ -50,6 +87,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Finance Agent API...")
+    update_task.cancel()
+    try:
+        await update_task
+    except asyncio.CancelledError:
+        pass
     scheduler.shutdown()
     logger.info("✓ Scheduler stopped")
 

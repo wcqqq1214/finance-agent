@@ -7,6 +7,8 @@ import csv
 import httpx
 import logging
 
+from app.database.crypto_ohlc import upsert_crypto_ohlc
+
 logger = logging.getLogger(__name__)
 
 BINANCE_VISION_BASE = "https://data.binance.vision/data/spot/daily/klines"
@@ -83,6 +85,12 @@ async def download_daily_data(
             })
 
         logger.info(f"Downloaded {len(result)} records for {symbol} {interval} {target_date}")
+
+        # Persist to database
+        if result:
+            rows_inserted = upsert_crypto_ohlc(symbol=symbol, bar=interval, data=result)
+            logger.info(f"Inserted {rows_inserted} records into database for {symbol} {interval} {target_date}")
+
         return result
 
     except httpx.HTTPStatusError as e:

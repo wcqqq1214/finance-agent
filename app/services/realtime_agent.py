@@ -1,6 +1,7 @@
 """Realtime agent for hot cache warmup and updates."""
 from datetime import datetime, timezone, timedelta
 from typing import List
+import asyncio
 import logging
 
 from app.services.binance_client import fetch_binance_klines
@@ -91,3 +92,22 @@ async def update_hot_cache() -> None:
                 logger.error(f"Failed to update {symbol} {interval}: {e}")
 
     logger.debug("Hot cache update completed")
+
+
+async def update_hot_cache_loop() -> None:
+    """
+    Continuous loop that updates hot cache every 60 seconds.
+
+    This function runs as a background task and periodically fetches
+    the latest data from Binance API to keep the hot cache fresh.
+    """
+    logger.info("Starting hot cache update loop...")
+
+    while True:
+        try:
+            await asyncio.sleep(60)  # Wait 60 seconds between updates
+            await update_hot_cache()
+        except Exception as e:
+            logger.error(f"Error in hot cache update loop: {e}")
+            # Continue running even if one update fails
+            await asyncio.sleep(60)

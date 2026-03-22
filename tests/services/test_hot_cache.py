@@ -183,9 +183,9 @@ class TestCleanupHotCache:
 
     def test_cleanup_removes_old_data(self):
         """Test that cleanup removes data before cutoff date."""
-        # Add data spanning multiple days
-        timestamps = [1710000000, 1710086400, 1710172800]  # 3 days apart
-        dates = [datetime.fromtimestamp(ts, tz=timezone.utc) for ts in timestamps]
+        # Add data spanning multiple days (use millisecond timestamps like Binance)
+        timestamps = [1710000000000, 1710086400000, 1710172800000]  # 3 days apart
+        dates = [datetime.fromtimestamp(ts / 1000, tz=timezone.utc) for ts in timestamps]
 
         test_data = pd.DataFrame({
             'timestamp': timestamps,
@@ -207,8 +207,8 @@ class TestCleanupHotCache:
 
         # Should only have 2 records (from cutoff onwards)
         assert len(result) == 2
-        assert result.loc[0, 'timestamp'] == 1710086400
-        assert result.loc[1, 'timestamp'] == 1710172800
+        assert result.loc[0, 'timestamp'] == 1710086400000
+        assert result.loc[1, 'timestamp'] == 1710172800000
 
     def test_cleanup_empty_cache(self):
         """Test cleanup on empty cache doesn't error."""

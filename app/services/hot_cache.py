@@ -7,7 +7,7 @@ of 1-minute data for BTCUSDT and ETHUSDT.
 """
 import logging
 import sys
-from typing import Dict
+from typing import Dict, List, Any
 import pandas as pd
 from datetime import datetime
 
@@ -50,7 +50,7 @@ def get_hot_cache(symbol: str, interval: str) -> pd.DataFrame:
 def append_to_hot_cache(
     symbol: str,
     interval: str,
-    new_data: pd.DataFrame
+    new_data: List[Dict[str, Any]]
 ) -> None:
     """
     Append new data to hot cache with deduplication.
@@ -58,7 +58,7 @@ def append_to_hot_cache(
     Args:
         symbol: Trading pair symbol (e.g., 'BTCUSDT')
         interval: Time interval (e.g., '1m', '5m')
-        new_data: DataFrame with new K-line data
+        new_data: List of K-line dictionaries
     """
     if symbol not in HOT_CACHE:
         logger.warning(f"Symbol {symbol} not in hot cache structure")
@@ -69,8 +69,15 @@ def append_to_hot_cache(
         HOT_CACHE[symbol][interval] = pd.DataFrame(columns=CACHE_COLUMNS)
         logger.debug(f"Initialized hot cache for {symbol} {interval}")
 
+    # Convert list to DataFrame if needed
+    if isinstance(new_data, list):
+        new_df = pd.DataFrame(new_data) if new_data else pd.DataFrame(columns=CACHE_COLUMNS)
+    else:
+        # Already a DataFrame (for backward compatibility with tests)
+        new_df = new_data if not new_data.empty else pd.DataFrame(columns=CACHE_COLUMNS)
+
     # Append new data
-    combined = pd.concat([HOT_CACHE[symbol][interval], new_data], ignore_index=True)
+    combined = pd.concat([HOT_CACHE[symbol][interval], new_df], ignore_index=True)
 
     # Deduplicate by timestamp, keeping last (newer data wins)
     if 'timestamp' in combined.columns and len(combined) > 0:
@@ -107,9 +114,12 @@ def cleanup_hot_cache(symbol: str, interval: str, cutoff_date: datetime) -> None
     if len(df) == 0:
         return
 
-    # Filter data after cutoff
+    # Convert cutoff_date to timestamp in milliseconds
+    cutoff_timestamp = int(cutoff_date.timestamp() * 1000)
+
+    # Filter data after cutoff using timestamp comparison
     original_len = len(df)
-    df_filtered = df[df['date'] >= cutoff_date].reset_index(drop=True)
+    df_filtered = df[df['timestamp'] >= cutoff_timestamp].reset_index(drop=True)
 
     HOT_CACHE[symbol][interval] = df_filtered
     removed = original_len - len(df_filtered)
