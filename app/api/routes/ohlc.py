@@ -52,17 +52,20 @@ def get_crypto_ohlc_from_db(
     Returns:
         OHLCResponse with crypto OHLC data
     """
+    # Convert symbol format: BTC-USDT -> BTCUSDT (database format)
+    db_symbol = symbol.replace('-', '')
+
     # Map interval to bar format
-    # Note: OKX doesn't support 1Y bar, so we use 1M (monthly) as the longest interval
+    # Note: Database uses 1m for 1-minute and 1d for 1-day
     interval_to_bar = {
         '15m': '15m',
         '1h': '1H',
         '4h': '4H',
-        '1d': '1D',
-        'day': '1D',
+        '1d': '1d',  # Changed from '1D' to '1d' to match database
+        'day': '1d',
         '1w': '1W',
         'week': '1W',
-        '1m': '1M',
+        '1m': '1m',  # This is 1-minute, not 1-month
         'month': '1M',
         '1y': '1M',  # Use monthly data for yearly view
         'year': '1M',  # Use monthly data for yearly view
@@ -92,7 +95,7 @@ def get_crypto_ohlc_from_db(
 
     # Query database
     try:
-        data = get_crypto_ohlc(symbol, bar, start, end)
+        data = get_crypto_ohlc(db_symbol, bar, start, end)
         if not data:
             raise HTTPException(
                 status_code=404,
