@@ -15,6 +15,7 @@ from app.tasks.update_ohlc import update_daily_ohlc
 from app.database.agent_history import init_db as init_agent_history_db
 from app.services.realtime_agent import warmup_hot_cache, update_hot_cache_loop
 from app.services.batch_downloader import download_daily_data
+from app.database.crypto_ohlc import get_max_date
 
 from .models import HealthResponse
 from .routes import analyze, reports, system, settings, stocks, ohlc, history, okx, crypto, crypto_klines
@@ -30,20 +31,54 @@ CRYPTO_INTERVALS = ["1m", "1d"]
 
 
 def daily_crypto_download():
-    """Download yesterday's crypto data from Binance Vision."""
+    """Download yesterday's crypto data from Binance Vision with catch-up mechanism."""
     logger.info("Starting daily crypto data download...")
     yesterday = date.today() - timedelta(days=1)
+
+    # Track statistics
+    total_downloads = 0
+    successful_downloads = 0
+    failed_downloads = 0
 
     for symbol in CRYPTO_SYMBOLS:
         for interval in CRYPTO_INTERVALS:
             try:
-                # Run async function in sync context
-                import asyncio
-                asyncio.run(download_daily_data(symbol, interval, yesterday))
-            except Exception as e:
-                logger.error(f"Failed to download {symbol} {interval} for {yesterday}: {e}")
+                # Get the maximum date in database for this symbol/interval
+                max_date = get_max_date(symbol, interval)
 
-    logger.info("Daily crypto data download completed")
+                # Determine dates to download
+                if max_date is None:
+                    # No data exists, download only yesterday
+                    dates_to_download = [yesterday]
+                elif max_date >= yesterday:
+                    # Data is current, no download needed
+                    dates_to_download = []
+                else:
+                    # Calculate missing dates (from day after max_date to yesterday)
+                    dates_to_download = []
+                    current_date = max_date + timedelta(days=1)
+                    while current_date <= yesterday:
+                        dates_to_download.append(current_date)
+                        current_date += timedelta(days=1)
+
+                # Download each missing date
+                for target_date in dates_to_download:
+                    total_downloads += 1
+                    try:
+                        # Run async function in sync context
+                        asyncio.run(download_daily_data(symbol, interval, target_date))
+                        successful_downloads += 1
+                    except Exception as e:
+                        failed_downloads += 1
+                        logger.error(f"Failed to download {symbol} {interval} for {target_date}: {e}")
+
+            except Exception as e:
+                logger.error(f"Failed to process {symbol} {interval}: {e}")
+
+    logger.info(
+        f"Daily crypto data download completed: "
+        f"total={total_downloads}, successful={successful_downloads}, failed={failed_downloads}"
+    )
 
 
 @asynccontextmanager
