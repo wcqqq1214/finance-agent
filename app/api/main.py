@@ -9,7 +9,7 @@ from app.tasks.update_ohlc import update_daily_ohlc
 from app.database.agent_history import init_db as init_agent_history_db
 
 from .models import HealthResponse
-from .routes import analyze, reports, system, settings, stocks, ohlc, history, okx, crypto
+from .routes import analyze, reports, system, settings, stocks, ohlc, history, okx, crypto, crypto_klines
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ app.include_router(ohlc.router, prefix="/api/stocks", tags=["ohlc"])
 app.include_router(history.router, prefix="/api", tags=["history"])
 app.include_router(okx.router, prefix="/api", tags=["okx"])
 app.include_router(crypto.router, prefix="/api/crypto", tags=["crypto"])
+app.include_router(crypto_klines.router, prefix="/api", tags=["crypto-klines"])
 
 
 @app.get("/")
