@@ -1,6 +1,6 @@
 """Initialize crypto K-line data for cold-hot architecture.
 
-This script downloads historical data from 2021-03-22 to 2026-03-21
+This script downloads historical data from 2020-01-01 to yesterday
 to populate the cold storage layer.
 
 Usage:
@@ -21,7 +21,7 @@ from app.database.schema import init_db
 
 
 async def main():
-    """Download data from 2017-08-17 (Binance launch) to yesterday for BTCUSDT and ETHUSDT."""
+    """Download data from 2020-01-01 to yesterday for BTCUSDT and ETHUSDT."""
     print("初始化加密货币 K 线数据...")
 
     # Initialize database
@@ -31,9 +31,8 @@ async def main():
     symbols = ["BTCUSDT", "ETHUSDT"]
     intervals = ["1m", "1d"]
 
-    # Download from Binance launch date to yesterday
-    # BTCUSDT and ETHUSDT both started on 2017-08-17
-    start_date = date(2017, 8, 17)
+    # Download from 2020-01-01 to yesterday
+    start_date = date(2020, 1, 1)
     end_date = date.today() - timedelta(days=1)  # Yesterday
 
     total_days = (end_date - start_date).days + 1
