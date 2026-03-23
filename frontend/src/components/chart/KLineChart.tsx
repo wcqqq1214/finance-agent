@@ -192,8 +192,12 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         locale: 'en-US',
         dateFormat: 'yyyy-MM-dd',
         // Custom time formatter for tooltips and crosshair
-        timeFormatter: (timestamp: number) => {
-          // timestamp is Unix seconds, convert to milliseconds
+        timeFormatter: (timestamp: number | string) => {
+          // For daily+ data, timestamp is a string (YYYY-MM-DD)
+          if (typeof timestamp === 'string') {
+            return timestamp;
+          }
+          // For intraday data, timestamp is Unix seconds
           const date = new Date(timestamp * 1000);
           // Format as local time string
           return date.toLocaleString('en-US', {
