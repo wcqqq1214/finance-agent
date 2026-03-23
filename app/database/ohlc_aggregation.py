@@ -60,8 +60,6 @@ def aggregate_ohlc(
         'low': 'min',
         'close': 'last',
         'volume': 'sum',
-        'symbol': 'first',
-        'bar': 'first'
     }).dropna()
 
     # Convert back to list of dicts
