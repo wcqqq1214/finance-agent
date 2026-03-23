@@ -126,14 +126,32 @@ export const api = {
 
   // Get OHLC data for a crypto symbol
   getCryptoOHLC: (symbol: string, start?: string, end?: string, interval: string = '15m') => {
+    // Convert symbol format: BTC-USDT -> BTCUSDT for klines endpoint
+    const binanceSymbol = symbol.replace('-', '');
     const params = new URLSearchParams();
+    params.append('symbol', binanceSymbol);
+    params.append('interval', interval);
     if (start) params.append('start', start);
     if (end) params.append('end', end);
-    params.append('interval', interval);
     const query = params.toString();
-    return fetchAPI<OHLCResponse>(
-      `/api/crypto/${symbol}/ohlc${query ? `?${query}` : ''}`
-    );
+
+    // Use klines endpoint which merges hot cache and cold database
+    return fetchAPI<any>(
+      `/api/crypto/klines?${query}`
+    ).then(data => {
+      // Transform klines response to OHLC format
+      return {
+        symbol: symbol,
+        data: data.map((item: any) => ({
+          date: item.date,
+          open: item.open,
+          high: item.high,
+          low: item.low,
+          close: item.close,
+          volume: item.volume
+        }))
+      };
+    });
   },
 };
 
