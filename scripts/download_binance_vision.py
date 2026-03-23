@@ -164,9 +164,9 @@ def download_and_parse_kline(
             with z.open(csv_filename) as f:
                 df = pd.read_csv(f, names=BINANCE_COLUMNS)
 
-                # Convert timestamps from milliseconds to datetime
-                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
+                # Convert timestamps from milliseconds to datetime (UTC)
+                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
+                df['close_time'] = pd.to_datetime(df['close_time'], unit='ms', utc=True)
 
                 # Select and rename columns for our database
                 df = df[[

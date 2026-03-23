@@ -155,7 +155,7 @@ def download_monthly_kline(symbol: str, interval: str, year: int, month: int) ->
             csv_filename = z.namelist()[0]
             with z.open(csv_filename) as f:
                 df = pd.read_csv(f, names=BINANCE_COLUMNS)
-                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
                 df = df[['open_time', 'open', 'high', 'low', 'close', 'volume']].rename(columns={'open_time': 'timestamp'})
                 return df
 
