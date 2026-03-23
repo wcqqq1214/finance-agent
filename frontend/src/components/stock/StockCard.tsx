@@ -25,6 +25,9 @@ export function StockCard({ stock, selected, onClick }: StockCardProps) {
     ? `${changeIcon} ${Math.abs(stock.changePercent).toFixed(2)}%`
     : '--';
 
+  // Check if this is a crypto asset (symbol contains '-')
+  const isCrypto = stock.symbol.includes('-');
+
   return (
     <button
       onClick={onClick}
@@ -37,14 +40,17 @@ export function StockCard({ stock, selected, onClick }: StockCardProps) {
       )}
     >
       {/* Logo */}
-      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center">
+      <div className={cn(
+        'rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center',
+        isCrypto ? 'w-10 h-10 bg-transparent' : 'w-8 h-8 bg-muted'
+      )}>
         {stock.logo ? (
           <Image
             src={stock.logo}
             alt={stock.symbol}
-            width={24}
-            height={24}
-            className="object-contain p-1"
+            width={isCrypto ? 40 : 24}
+            height={isCrypto ? 40 : 24}
+            className={cn('object-contain', isCrypto ? '' : 'p-1')}
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
