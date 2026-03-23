@@ -66,7 +66,6 @@ def aggregate_ohlc(
     result = []
     for idx, row in aggregated.iterrows():
         result.append({
-            'symbol': row['symbol'],
             'timestamp': int(idx.timestamp() * 1000),
             'date': idx.isoformat(),
             'open': float(row['open']),
@@ -74,7 +73,6 @@ def aggregate_ohlc(
             'low': float(row['low']),
             'close': float(row['close']),
             'volume': float(row['volume']),
-            'bar': target_interval
         })
 
     return result
