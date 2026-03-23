@@ -13,7 +13,7 @@ router = APIRouter()
 @router.get("/crypto/klines")
 async def get_crypto_klines(
     symbol: str = Query(..., description="Trading pair symbol (e.g., BTCUSDT)"),
-    interval: str = Query(..., description="K-line interval (e.g., 1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
+    interval: str = Query(..., description="K-line interval: 15m, 1h, 4h, 1d, 1w, 1M"),
     start: Optional[str] = Query(None, description="Start date in ISO format"),
     end: Optional[str] = Query(None, description="End date in ISO format")
 ) -> List[dict]:
@@ -27,9 +27,17 @@ async def get_crypto_klines(
     4. Aggregate to requested interval if needed
     5. Return sorted by timestamp
 
+    Supported intervals (matching frontend):
+    - 15m: 15 minutes
+    - 1h: 1 hour
+    - 4h: 4 hours
+    - 1d: 1 day
+    - 1w: 1 week
+    - 1M: 1 month
+
     Args:
         symbol: Trading pair symbol (e.g., "BTCUSDT")
-        interval: K-line interval (e.g., "1m", "5m", "15m", "30m", "1h", "4h", "1d")
+        interval: K-line interval (15m, 1h, 4h, 1d, 1w, 1M)
         start: Optional start date filter
         end: Optional end date filter
 
@@ -37,16 +45,14 @@ async def get_crypto_klines(
         List of K-line records with keys: timestamp, date, open, high, low, close, volume
     """
     # Map interval to source bar and determine if aggregation is needed
+    # Only support intervals that frontend uses
     interval_to_source = {
-        '1m': ('1m', False),
-        '5m': ('1m', True),
-        '15m': ('1m', True),
-        '30m': ('1m', True),
-        '1h': ('1m', True),
-        '4h': ('1m', True),
-        '1d': ('1d', False),
-        '1w': ('1d', True),
-        '1M': ('1d', True),
+        '15m': ('1m', True),   # 15 Min button
+        '1h': ('1m', True),    # 1 Hour button
+        '4h': ('1m', True),    # 4 Hour button
+        '1d': ('1d', False),   # 1 Day button
+        '1w': ('1d', True),    # 1 Week button
+        '1M': ('1d', True),    # 1 Month button
     }
 
     source_info = interval_to_source.get(interval)
