@@ -65,6 +65,19 @@ function calculateDateRange(range: TimeRange): { start: string; end: string } {
   };
 }
 
+// Helper function to get current timezone information
+function getTimezoneInfo(): { name: string; offset: string } {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const offsetMinutes = -new Date().getTimezoneOffset();
+  const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
+  const offsetMins = Math.abs(offsetMinutes) % 60;
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const offsetStr = offsetMins > 0
+    ? `UTC${sign}${offsetHours}:${offsetMins.toString().padStart(2, '0')}`
+    : `UTC${sign}${offsetHours}`;
+  return { name: timeZone, offset: offsetStr };
+}
+
 export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
   const defaultTimeRange: TimeRange = assetType === 'crypto' ? '15M' : 'D';
   const [timeRange, setTimeRange] = useState<TimeRange>(defaultTimeRange);
