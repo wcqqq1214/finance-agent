@@ -1,10 +1,11 @@
 """Crypto K-lines API endpoint."""
 from typing import List, Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 import pandas as pd
 
 from app.database.crypto_ohlc import get_crypto_ohlc
 from app.services.hot_cache import get_hot_cache
+from app.database.ohlc_aggregation import aggregate_ohlc
 
 router = APIRouter()
 
@@ -12,7 +13,7 @@ router = APIRouter()
 @router.get("/crypto/klines")
 async def get_crypto_klines(
     symbol: str = Query(..., description="Trading pair symbol (e.g., BTCUSDT)"),
-    interval: str = Query(..., description="K-line interval (e.g., 1m, 1d)"),
+    interval: str = Query(..., description="K-line interval (e.g., 1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
     start: Optional[str] = Query(None, description="Start date in ISO format"),
     end: Optional[str] = Query(None, description="End date in ISO format")
 ) -> List[dict]:
@@ -23,27 +24,56 @@ async def get_crypto_klines(
     1. Fetch historical data from cold storage (SQLite)
     2. Fetch recent data from hot cache (in-memory)
     3. Merge and deduplicate (hot data takes precedence)
-    4. Return sorted by timestamp
+    4. Aggregate to requested interval if needed
+    5. Return sorted by timestamp
 
     Args:
         symbol: Trading pair symbol (e.g., "BTCUSDT")
-        interval: K-line interval (e.g., "1m", "1d")
+        interval: K-line interval (e.g., "1m", "5m", "15m", "30m", "1h", "4h", "1d")
         start: Optional start date filter
         end: Optional end date filter
 
     Returns:
         List of K-line records with keys: timestamp, date, open, high, low, close, volume
     """
+    # Map interval to source bar and determine if aggregation is needed
+    interval_to_source = {
+        '1m': ('1m', False),
+        '5m': ('1m', True),
+        '15m': ('1m', True),
+        '30m': ('1m', True),
+        '1h': ('1m', True),
+        '4h': ('1m', True),
+        '1d': ('1d', False),
+        '1w': ('1d', True),
+        '1M': ('1d', True),
+    }
+
+    source_info = interval_to_source.get(interval)
+    if not source_info:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interval. Supported: {', '.join(interval_to_source.keys())}"
+        )
+
+    source_bar, needs_aggregation = source_info
+
+    # Convert symbol format: BTCUSDT -> BTC-USDT for database
+    if symbol.endswith('USDT') and '-' not in symbol:
+        db_symbol = f"{symbol[:-4]}-USDT"
+    else:
+        db_symbol = symbol
+
     # Fetch cold data from database
     cold_data = get_crypto_ohlc(
-        symbol=symbol,
-        bar=interval,
+        symbol=db_symbol,
+        bar=source_bar,
         start=start,
         end=end
     )
 
     # Fetch hot data from cache
-    hot_df = get_hot_cache(symbol, interval)
+    hot_df = get_hot_cache(symbol, source_bar)
 
     # Convert cold data to DataFrame
     if cold_data:
@@ -66,5 +96,9 @@ async def get_crypto_klines(
 
     # Convert to list of dicts
     result = merged_df.to_dict('records')
+
+    # Aggregate if needed
+    if needs_aggregation and result:
+        result = aggregate_ohlc(result, interval)
 
     return result
