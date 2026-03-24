@@ -4,13 +4,9 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 import logging
+import pandas as pd
 
-from app.okx import get_okx_client
-from app.okx.exceptions import (
-    OKXError,
-    OKXAuthError,
-    OKXRateLimitError
-)
+from app.services.hot_cache import get_hot_cache
 from app.database.crypto_ohlc import get_crypto_ohlc
 from app.database.ohlc_aggregation import aggregate_ohlc
 
@@ -61,7 +57,7 @@ class OHLCResponse(BaseModel):
 async def get_crypto_quotes(
     symbols: str = Query(..., description="Comma-separated list of symbols (e.g., BTC-USDT,ETH-USDT)")
 ) -> CryptoQuotesResponse:
-    """Get crypto quotes for specified symbols.
+    """Get crypto quotes for specified symbols from Binance hot cache.
 
     Args:
         symbols: Comma-separated list of trading pair symbols
@@ -70,7 +66,7 @@ async def get_crypto_quotes(
         CryptoQuotesResponse with list of quotes
 
     Raises:
-        HTTPException: 401 for auth errors, 429 for rate limits, 400 for other errors, 500 for unexpected errors
+        HTTPException: 400 for invalid symbols or missing data, 500 for unexpected errors
     """
     try:
         logger.info(f"Getting crypto quotes for symbols: {symbols}")
@@ -78,28 +74,71 @@ async def get_crypto_quotes(
         # Parse symbols
         symbol_list = [s.strip() for s in symbols.split(',')]
 
-        # Get OKX client (demo mode)
-        client = get_okx_client('demo')
-
-        # Fetch ticker data for each symbol
+        # Fetch quotes from hot cache
         quotes = []
         for symbol in symbol_list:
             try:
-                ticker = await client.get_ticker(symbol)
+                # Convert BTC-USDT to BTCUSDT format for hot cache
+                cache_symbol = symbol.replace('-', '')
 
-                # Calculate daily change (based on UTC+8 00:00 open price)
-                # sodUtc8 = Start of Day UTC+8 (Beijing time 00:00)
-                last_price = float(ticker.get('last', 0))
-                open_today = float(ticker.get('sodUtc8', 0))
+                # Get 1-minute data from hot cache
+                df = get_hot_cache(cache_symbol, '1m')
 
-                # Fallback to 24h open if sodUtc8 not available
-                if open_today == 0:
-                    open_today = float(ticker.get('open24h', 0))
+                if df.empty:
+                    logger.warning(f"No data in hot cache for {symbol}")
+                    # Return zero values if no data
+                    name = CRYPTO_NAMES.get(symbol, symbol)
+                    quote = CryptoQuote(
+                        symbol=symbol,
+                        name=name,
+                        price=0.0,
+                        change=0.0,
+                        changePercent=0.0,
+                        volume24h=0.0,
+                        high24h=0.0,
+                        low24h=0.0
+                    )
+                    quotes.append(quote)
+                    continue
 
-                change_amount = last_price - open_today
-                change_pct = 0.0
-                if open_today > 0:
-                    change_pct = (change_amount / open_today) * 100
+                # Get latest record (most recent 1-minute candle)
+                latest = df.iloc[-1]
+                last_price = float(latest['close'])
+
+                # Calculate daily statistics from local time 00:00 today
+                from datetime import datetime
+                import pytz
+
+                # Get local timezone (system timezone)
+                local_tz = datetime.now().astimezone().tzinfo
+
+                # Get today's 00:00 in local time
+                now_local = datetime.now(local_tz)
+                today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                # Convert timestamp column to datetime for filtering
+                # timestamp is in milliseconds
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+
+                # Filter data from today 00:00 onwards
+                df_today = df[df['datetime'] >= today_start]
+
+                if len(df_today) > 0:
+                    open_today = float(df_today.iloc[0]['open'])
+                    high_today = float(df_today['high'].max())
+                    low_today = float(df_today['low'].min())
+                    volume_today = float(df_today['volume'].sum())
+
+                    change_amount = last_price - open_today
+                    change_pct = (change_amount / open_today * 100) if open_today > 0 else 0.0
+                else:
+                    # Fallback if no data from today (e.g., just after midnight)
+                    open_today = last_price
+                    high_today = last_price
+                    low_today = last_price
+                    volume_today = 0.0
+                    change_amount = 0.0
+                    change_pct = 0.0
 
                 # Get crypto name
                 name = CRYPTO_NAMES.get(symbol, symbol)
@@ -110,28 +149,25 @@ async def get_crypto_quotes(
                     price=last_price,
                     change=change_amount,
                     changePercent=change_pct,
-                    volume24h=float(ticker.get('vol24h', 0)),
-                    high24h=float(ticker.get('high24h', 0)),
-                    low24h=float(ticker.get('low24h', 0))
+                    volume24h=volume_today,
+                    high24h=high_today,
+                    low24h=low_today
                 )
                 quotes.append(quote)
 
-            except OKXError as e:
-                logger.error(f"Error fetching ticker for {symbol}: {e}")
-                raise
+            except Exception as e:
+                logger.error(f"Error fetching data for {symbol}: {e}")
+                # Continue with other symbols instead of failing completely
+                continue
 
-        logger.info(f"Successfully retrieved {len(quotes)} crypto quotes")
+        if not quotes:
+            raise HTTPException(status_code=400, detail="No valid quotes retrieved")
+
+        logger.info(f"Successfully retrieved {len(quotes)} crypto quotes from hot cache")
         return CryptoQuotesResponse(quotes=quotes)
 
-    except OKXAuthError as e:
-        logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
-    except OKXRateLimitError as e:
-        logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
-    except OKXError as e:
-        logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

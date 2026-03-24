@@ -113,7 +113,7 @@ async def warmup_hot_cache() -> None:
                     logger.warning(f"No data returned for {symbol} {interval}")
 
             except Exception as e:
-                logger.error(f"Failed to warmup {symbol} {interval}: {e}")
+                logger.error(f"Failed to warmup {symbol} {interval}: {e}", exc_info=True)
 
     logger.info("Hot cache warmup completed")
 
@@ -154,7 +154,7 @@ async def update_hot_cache() -> None:
                 cleanup_hot_cache(symbol, interval, cutoff_time)
 
             except Exception as e:
-                logger.error(f"Failed to update {symbol} {interval}: {e}")
+                logger.error(f"Failed to update {symbol} {interval}: {e}", exc_info=True)
 
     logger.debug("Hot cache update completed")
 
@@ -173,6 +173,6 @@ async def update_hot_cache_loop() -> None:
             await asyncio.sleep(60)  # Wait 60 seconds between updates
             await update_hot_cache()
         except Exception as e:
-            logger.error(f"Error in hot cache update loop: {e}")
+            logger.error(f"Error in hot cache update loop: {e}", exc_info=True)
             # Continue running even if one update fails
             await asyncio.sleep(60)
