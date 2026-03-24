@@ -46,7 +46,11 @@ def normalize_timezone(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _extract_symbol_frame(data: pd.DataFrame, symbol: str, symbols_count: int) -> pd.DataFrame:
+    """Extract data for a single symbol from a yfinance download result."""
     if symbols_count == 1:
+        if isinstance(data.columns, pd.MultiIndex):
+            if symbol in data.columns.get_level_values(1):
+                return data.droplevel(1, axis=1)
         return data
 
     if isinstance(data.columns, pd.MultiIndex):
