@@ -199,6 +199,10 @@ def should_update_stocks() -> bool:
 Run: `uv run python -c "from app.services.trading_hours import should_update_stocks; result = should_update_stocks(); print(f'Should update: {result}')"`
 Expected: 根据当前时间输出 True 或 False，并显示相应的日志
 
+**时区测试注意事项：**
+- 如果当前美东时间在盘外时段（非 09:31-16:05 或周末/节假日），守门员会返回 False 并输出 "Skipping update"。这是正常行为。
+- 如需强制测试拉取逻辑，可以临时修改 `app/services/trading_hours.py` 中的 `should_update_stocks()` 函数，让它直接返回 `True`，测试完成后记得改回来。
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -232,7 +236,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 import pandas as pd
 
-from app.database.ohlc import update_metadata
+from app.database.ohlc import update_metadata, upsert_ohlc_overwrite
 from app.services.trading_hours import should_update_stocks
 
 logger = logging.getLogger(__name__)
@@ -405,14 +409,14 @@ git commit -m "feat: add batch OHLC data fetching from yfinance
 
 ---
 
-## Task 5: 创建数据更新模块（第3部分：Upsert 逻辑）
+## Task 5: 添加 Upsert 覆盖函数到数据层
 
 **Files:**
-- Modify: `app/services/stock_updater.py`
+- Modify: `app/database/ohlc.py`
 
-- [ ] **Step 1: 实现 Upsert 覆盖函数**
+- [ ] **Step 1: 在数据层添加 Upsert 覆盖函数**
 
-在 `app/services/stock_updater.py` 中添加：
+在 `app/database/ohlc.py` 文件末尾添加：
 
 ```python
 def upsert_ohlc_overwrite(symbol: str, data: List[Dict]):
@@ -428,8 +432,6 @@ def upsert_ohlc_overwrite(symbol: str, data: List[Dict]):
     """
     if not data:
         return
-
-    from app.database.schema import get_conn
 
     conn = get_conn()
 
@@ -449,12 +451,14 @@ def upsert_ohlc_overwrite(symbol: str, data: List[Dict]):
     conn.commit()
     conn.close()
 
-    logger.debug(f"Upserted (overwrite) {len(data)} records for {symbol}")
+    logger.info(f"Upserted (overwrite) {len(data)} records for {symbol}")
 ```
+
+注意：此函数放在数据访问层（`app/database/ohlc.py`），与现有的 `upsert_ohlc` 函数保持一致的架构。
 
 - [ ] **Step 2: 测试 Upsert 函数**
 
-Run: `uv run python -c "from app.services.stock_updater import upsert_ohlc_overwrite; test_data = [{'date': '2026-03-24', 'open': 100.0, 'high': 101.0, 'low': 99.0, 'close': 100.5, 'volume': 1000}]; upsert_ohlc_overwrite('TEST', test_data); print('Upsert successful')"`
+Run: `uv run python -c "from app.database.ohlc import upsert_ohlc_overwrite; test_data = [{'date': '2026-03-24', 'open': 100.0, 'high': 101.0, 'low': 99.0, 'close': 100.5, 'volume': 1000}]; upsert_ohlc_overwrite('TEST', test_data); print('Upsert successful')"`
 Expected: 输出 "Upsert successful"
 
 - [ ] **Step 3: 验证数据已写入**
@@ -465,12 +469,12 @@ Expected: 输出 "Found 1 records"
 - [ ] **Step 4: Commit**
 
 ```bash
-git add app/services/stock_updater.py
-git commit -m "feat: add upsert_ohlc_overwrite for intraday updates
+git add app/database/ohlc.py
+git commit -m "feat: add upsert_ohlc_overwrite to database layer
 
 - Use ON CONFLICT DO UPDATE instead of DO NOTHING
 - Support overwriting unclosed candles during trading hours
-- Maintain compatibility with existing database schema"
+- Place in data access layer for better architecture"
 ```
 
 ---
@@ -588,6 +592,10 @@ async def update_stocks_intraday():
 
 Run: `uv run python -c "import asyncio; from app.services.stock_updater import update_stocks_intraday; asyncio.run(update_stocks_intraday())"`
 Expected: 如果在交易时段，输出更新日志；否则输出 "Skipping update"
+
+**时区测试注意事项：**
+- 如果当前美东时间在盘外时段，守门员会拒绝更新。这是正常行为。
+- 如需强制测试，可以临时修改 `should_update_stocks()` 返回 `True`。
 
 - [ ] **Step 3: Commit**
 
@@ -729,12 +737,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.services.stock_updater import (
-    fetch_recent_ohlc,
-    upsert_ohlc_overwrite,
-    update_metadata,
-    SYMBOLS
-)
+from app.services.stock_updater import fetch_recent_ohlc, SYMBOLS
+from app.database.ohlc import upsert_ohlc_overwrite, update_metadata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -834,25 +838,26 @@ git commit -m "feat: add backfill script for stock data gap
 Run: `uv run uvicorn app.api.main:app --port 8080`
 Expected: 看到日志 "✓ APScheduler started: updates at :01, :16, :31, :46 (ET)"
 
-- [ ] **Step 2: 检查调度器状态（在另一个终端）**
-
-Run: `curl http://localhost:8080/api/scheduler/status 2>/dev/null | python -m json.tool`
-Expected: 如果实现了监控端点，显示调度器状态；否则跳过此步骤
-
-- [ ] **Step 3: 等待下一个触发时间**
+- [ ] **Step 2: 等待下一个触发时间并观察日志**
 
 等待到下一个 :01, :16, :31, 或 :46 分钟，观察日志输出。
 
-Expected: 
+Expected:
 - 如果在交易时段：看到 "Starting intraday stock update" 和更新日志
 - 如果在盘外时段：看到 "Skipping update: outside trading hours"
 
-- [ ] **Step 4: 验证数据已更新**
+**时区测试注意事项：**
+- 美东交易时段：周一至周五 09:31-16:05 ET
+- 如果你在新加坡（UTC+8），对应的是美东时间晚上/凌晨，大概率会看到 "Skipping update"
+- 这是正常行为，说明守门员工作正常
+- 如需验证完整流程，可以等到美东交易时段（新加坡时间晚上 21:31 - 次日凌晨 04:05）
+
+- [ ] **Step 3: 验证数据已更新**
 
 Run: `uv run python -c "from app.database.ohlc import get_ohlc; import datetime; today = datetime.date.today().isoformat(); records = get_ohlc('AAPL', today, today); print(f'AAPL today: {len(records)} records'); if records: print(f'Close: ${records[0][\"close\"]:.2f}')"`
 Expected: 如果在交易日，显示今天的数据
 
-- [ ] **Step 5: 检查日志文件（如果有）**
+- [ ] **Step 4: 检查日志文件（如果有）**
 
 查看应用日志，确认：
 - 守门员正常工作
@@ -860,7 +865,7 @@ Expected: 如果在交易日，显示今天的数据
 - Upsert 成功
 - 显示最新价格
 
-- [ ] **Step 6: 最终验证 Commit**
+- [ ] **Step 5: 最终验证 Commit**
 
 ```bash
 git add -A
