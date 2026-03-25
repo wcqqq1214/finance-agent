@@ -800,8 +800,6 @@ class CircuitBreaker:
         else:  # HALF_OPEN
             return True
 ```
-            return True
-```
 
 ### 限流 Lua 脚本（优化版）
 
