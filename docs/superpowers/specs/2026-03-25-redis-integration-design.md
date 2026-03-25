@@ -576,3 +576,198 @@ tests/integration/test_rate_limit_e2e.py # 端到端限流测试
 - WARNING: 降级事件（Redis 不可用）
 - ERROR: 失败操作（任务失败、限流异常）
 
+
+## 技术细节补充
+
+### RQ 异步任务处理
+
+**问题**：RQ 不原生支持 async 函数
+
+**解决方案**：使用同步包装器
+```python
+# app/tasks/update_ohlc.py
+import asyncio
+
+def update_daily_ohlc() -> dict:
+    """RQ 任务入口（同步）"""
+    return asyncio.run(_update_daily_ohlc_async())
+
+async def _update_daily_ohlc_async() -> dict:
+    """实际业务逻辑（异步）"""
+    # 异步调用 API
+    data = await call_get_stock_history(...)
+    return {"success": 7, "failed": 0}
+```
+
+### 限流装饰器实现细节
+
+**参数提取机制**：
+```python
+import functools
+import inspect
+
+def rate_limit(exchange: str, identifier_key: str = "symbol"):
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            # 从函数签名提取参数
+            sig = inspect.signature(func)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            
+            # 获取标识符值
+            identifier = bound.arguments.get(identifier_key, "default")
+            
+            # 检查限流
+            await check_rate_limit(exchange, identifier)
+            
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+```
+
+### Circuit Breaker 状态持久化
+
+**多实例部署方案**：
+- Circuit Breaker 状态存储在 Redis 中（共享状态）
+- Key: `circuit_breaker:{service}:state`
+- 值: `{"state": "OPEN", "failures": 5, "last_failure": 1234567890}`
+- TTL: 300 秒（5 分钟）
+
+**实现**：
+```python
+class CircuitBreaker:
+    async def get_state(self) -> str:
+        """从 Redis 读取状态（跨实例共享）"""
+        state = await redis.get("circuit_breaker:redis:state")
+        return state or "CLOSED"
+    
+    async def record_failure(self):
+        """记录失败并更新状态"""
+        await redis.incr("circuit_breaker:redis:failures")
+        failures = await redis.get("circuit_breaker:redis:failures")
+        if int(failures) >= 5:
+            await redis.set("circuit_breaker:redis:state", "OPEN", ex=60)
+```
+
+### 限流 Lua 脚本
+
+**原子性保证**：
+```lua
+-- rate_limit.lua
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local max_requests = tonumber(ARGV[3])
+local request_id = ARGV[4]
+
+-- 删除窗口外的旧记录
+local window_start = now - window * 1000
+redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
+
+-- 统计当前窗口内的请求数
+local count = redis.call('ZCARD', key)
+
+if count < max_requests then
+    -- 允许请求，添加新记录
+    redis.call('ZADD', key, now, request_id)
+    redis.call('EXPIRE', key, window + 10)
+    return 1  -- 允许
+else
+    return 0  -- 拒绝
+end
+```
+
+**Python 调用**：
+```python
+script = redis.register_script(lua_script)
+allowed = await script(
+    keys=[f"ratelimit:{exchange}:{identifier}"],
+    args=[now_ms, window_seconds, max_requests, uuid.uuid4().hex]
+)
+```
+
+### 内存限流器修正
+
+**正确的滑动窗口实现**：
+```python
+from collections import deque
+from time import time
+
+class LocalRateLimiter:
+    def __init__(self, max_requests: int, window: int):
+        self.max_requests = max_requests
+        self.window = window
+        self.requests = deque()  # 存储时间戳
+    
+    def is_allowed(self) -> bool:
+        now = time()
+        # 移除窗口外的请求
+        while self.requests and self.requests[0] < now - self.window:
+            self.requests.popleft()
+        
+        # 检查是否超限
+        if len(self.requests) < self.max_requests:
+            self.requests.append(now)
+            return True
+        return False
+```
+
+### Key 命名和哈希
+
+**参数哈希生成**：
+```python
+import hashlib
+import json
+
+def generate_cache_key(data_type: str, symbol: str, interval: str, **params) -> str:
+    """生成缓存 key"""
+    # 标准化参数（排序确保一致性）
+    params_str = json.dumps(params, sort_keys=True)
+    params_hash = hashlib.md5(params_str.encode()).hexdigest()[:8]
+    
+    return f"cache:{data_type}:{symbol}:{interval}:{params_hash}"
+
+# 示例
+key = generate_cache_key("kline", "BTCUSDT", "1m", start_time=1234567890)
+# 结果: cache:kline:BTCUSDT:1m:a3f2b1c4
+```
+
+### APScheduler + RQ 集成修正
+
+**使用同步 Redis 连接**：
+```python
+from apscheduler.schedulers.background import BackgroundScheduler  # 同步版本
+from redis import Redis  # 同步版本
+from rq import Queue
+
+redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
+queue = Queue('default', connection=redis_conn)
+
+scheduler = BackgroundScheduler()
+
+@scheduler.scheduled_job('cron', hour=2, minute=0)
+def schedule_daily_update():
+    queue.enqueue('app.tasks.update_ohlc.update_daily_ohlc')
+```
+
+**或使用 aiorq（异步版本）**：
+```python
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from aiorq import create_pool
+from aiorq.queue import Queue
+
+async def init_queue():
+    redis = await create_pool(os.getenv("REDIS_URL"))
+    return Queue(redis_pool=redis)
+
+scheduler = AsyncIOScheduler()
+
+@scheduler.scheduled_job('cron', hour=2, minute=0)
+async def schedule_daily_update():
+    queue = await init_queue()
+    await queue.enqueue('app.tasks.update_ohlc.update_daily_ohlc')
+```
+
+**推荐方案**：使用同步 RQ + BackgroundScheduler（更成熟稳定）
+
