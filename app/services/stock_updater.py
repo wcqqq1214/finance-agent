@@ -155,8 +155,16 @@ def update_stocks_intraday_sync() -> None:
     logger.info("=" * 60)
 
 
-async def update_stocks_intraday() -> None:
-    """Async wrapper for the intraday stock update."""
+async def update_stocks_intraday(force: bool = False) -> None:
+    """Async wrapper for the intraday stock update.
+
+    Args:
+        force: If True, bypass trading hours check and update anyway
+    """
+    if not force and not should_update_stocks():
+        logger.info("Skipping update: outside trading hours or holiday")
+        return
+
     try:
         await asyncio.to_thread(update_stocks_intraday_sync)
     except Exception as exc:
