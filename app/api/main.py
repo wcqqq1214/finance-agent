@@ -138,6 +138,16 @@ def daily_crypto_download():
     )
 
 
+async def background_cache_warmup():
+    """Background task for hot cache warmup with error handling."""
+    try:
+        logger.info("Starting hot cache warmup in background...")
+        await warmup_hot_cache()
+        logger.info("✓ Hot cache warmup completed successfully")
+    except Exception as exc:
+        logger.error(f"✗ Hot cache warmup failed: {exc}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
@@ -150,10 +160,9 @@ async def lifespan(app: FastAPI):
     init_agent_history_db(db_path)
     logger.info(f"✓ Agent history database initialized: {db_path}")
 
-    # Warmup hot cache
-    logger.info("Warming up hot cache...")
-    await warmup_hot_cache()
-    logger.info("✓ Hot cache warmed up")
+    # Start hot cache warmup as non-blocking background task
+    warmup_task = asyncio.create_task(background_cache_warmup())
+    logger.info("✓ Hot cache warmup started in background (non-blocking)")
 
     # Start hot cache update loop as background task
     update_task = asyncio.create_task(update_hot_cache_loop())
@@ -200,11 +209,23 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Finance Agent API...")
+
+    # Cancel warmup task if still running
+    if not warmup_task.done():
+        logger.info("Cancelling hot cache warmup task...")
+        warmup_task.cancel()
+        try:
+            await warmup_task
+        except asyncio.CancelledError:
+            logger.info("✓ Hot cache warmup task cancelled")
+
+    # Cancel update loop task
     update_task.cancel()
     try:
         await update_task
     except asyncio.CancelledError:
         pass
+
     scheduler.shutdown()
     await close_arq_pool(getattr(app.state, "arq_pool", None))
     logger.info("✓ Scheduler stopped")
