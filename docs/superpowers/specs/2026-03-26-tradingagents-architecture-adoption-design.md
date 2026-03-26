@@ -1001,3 +1001,784 @@ def quant_agent_node(state: AgentState):
     return {"quant_report": response.content}
 ```
 
+
+## 5. BM25 记忆系统设计
+
+### 5.1 目录结构
+
+```
+app/memory/
+├── __init__.py
+├── base.py              # 记忆系统抽象基类
+├── bm25_memory.py       # BM25 离线记忆
+├── hybrid_memory.py     # BM25 + ChromaDB 混合检索
+└── utils.py
+```
+
+### 5.2 抽象基类
+
+**`app/memory/base.py`**：
+
+```python
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Tuple
+from pydantic import BaseModel
+
+class MemoryEntry(BaseModel):
+    """记忆条目"""
+    situation: str          # 情境描述
+    recommendation: str     # 决策建议
+    metadata: Dict[str, Any] = {}  # 元数据（时间、资产、结果等）
+
+class MemorySearchResult(BaseModel):
+    """检索结果"""
+    situation: str
+    recommendation: str
+    score: float           # 相似度分数
+    metadata: Dict[str, Any] = {}
+
+class BaseMemory(ABC):
+    """记忆系统抽象基类"""
+    
+    @abstractmethod
+    def add(self, entries: List[MemoryEntry]):
+        """添加记忆"""
+        pass
+    
+    @abstractmethod
+    def search(self, query: str, top_k: int = 3) -> List[MemorySearchResult]:
+        """检索相关记忆"""
+        pass
+    
+    @abstractmethod
+    def clear(self):
+        """清空记忆"""
+        pass
+```
+
+### 5.3 BM25 记忆实现
+
+**`app/memory/bm25_memory.py`**：
+
+```python
+import re
+from typing import List
+from rank_bm25 import BM25Okapi
+from app.memory.base import BaseMemory, MemoryEntry, MemorySearchResult
+
+class BM25Memory(BaseMemory):
+    """
+    基于 BM25 的离线记忆系统
+    
+    优势：
+    - 无需 API 调用，完全离线
+    - 无 token 限制
+    - 精确匹配关键词（如股票代码、技术指标名称）
+    
+    适用场景：
+    - 存储历史交易决策
+    - 存储 Agent 反思记录
+    - 快速检索特定资产的历史分析
+    """
+    
+    def __init__(self, name: str):
+        self.name = name
+        self.entries: List[MemoryEntry] = []
+        self.bm25: BM25Okapi = None
+    
+    def _tokenize(self, text: str) -> List[str]:
+        """分词（支持中英文）"""
+        tokens = re.findall(r'\b\w+\b', text.lower())
+        return tokens
+    
+    def _rebuild_index(self):
+        """重建 BM25 索引"""
+        if self.entries:
+            tokenized_docs = [
+                self._tokenize(entry.situation) 
+                for entry in self.entries
+            ]
+            self.bm25 = BM25Okapi(tokenized_docs)
+        else:
+            self.bm25 = None
+    
+    def add(self, entries: List[MemoryEntry]):
+        """添加记忆并重建索引"""
+        self.entries.extend(entries)
+        self._rebuild_index()
+    
+    def search(self, query: str, top_k: int = 3) -> List[MemorySearchResult]:
+        """BM25 检索"""
+        if not self.entries or self.bm25 is None:
+            return []
+        
+        # 分词查询
+        query_tokens = self._tokenize(query)
+        
+        # 计算 BM25 分数
+        scores = self.bm25.get_scores(query_tokens)
+        
+        # 获取 top-k
+        top_indices = sorted(
+            range(len(scores)), 
+            key=lambda i: scores[i], 
+            reverse=True
+        )[:top_k]
+        
+        # 构建结果
+        results = []
+        for idx in top_indices:
+            if scores[idx] > 0:  # 过滤零分结果
+                entry = self.entries[idx]
+                results.append(MemorySearchResult(
+                    situation=entry.situation,
+                    recommendation=entry.recommendation,
+                    score=float(scores[idx]),
+                    metadata=entry.metadata
+                ))
+        
+        return results
+    
+    def clear(self):
+        """清空记忆"""
+        self.entries = []
+        self.bm25 = None
+```
+
+
+### 5.4 混合记忆系统（BM25 + ChromaDB）
+
+**`app/memory/hybrid_memory.py`**：
+
+```python
+from typing import List
+from app.memory.base import BaseMemory, MemoryEntry, MemorySearchResult
+from app.memory.bm25_memory import BM25Memory
+from app.rag.build_event_memory import get_chroma_client
+
+class HybridMemory(BaseMemory):
+    """
+    BM25 + ChromaDB 混合检索
+    
+    策略：
+    1. BM25 检索：精确匹配关键词（股票代码、指标名称）
+    2. ChromaDB 检索：语义相似度（模糊概念、情绪描述）
+    3. 结果融合：RRF (Reciprocal Rank Fusion)
+    
+    适用场景：
+    - 需要同时匹配精确关键词和语义相似度
+    - 例如："AAPL 的 MACD 金叉" 既要匹配 "AAPL" 和 "MACD"，
+      也要理解 "金叉" 的语义
+    """
+    
+    def __init__(self, name: str, chroma_collection_name: str):
+        self.name = name
+        self.bm25_memory = BM25Memory(f"{name}_bm25")
+        self.chroma_client = get_chroma_client()
+        self.chroma_collection = self.chroma_client.get_or_create_collection(
+            chroma_collection_name
+        )
+    
+    def add(self, entries: List[MemoryEntry]):
+        """同时添加到 BM25 和 ChromaDB"""
+        # 添加到 BM25
+        self.bm25_memory.add(entries)
+        
+        # 添加到 ChromaDB
+        for i, entry in enumerate(entries):
+            self.chroma_collection.add(
+                documents=[entry.situation],
+                metadatas=[{
+                    "recommendation": entry.recommendation,
+                    **entry.metadata
+                }],
+                ids=[f"{self.name}_{len(self.bm25_memory.entries) - len(entries) + i}"]
+            )
+    
+    def search(self, query: str, top_k: int = 3) -> List[MemorySearchResult]:
+        """混合检索（BM25 + ChromaDB）"""
+        # 1. BM25 检索
+        bm25_results = self.bm25_memory.search(query, top_k=top_k * 2)
+        
+        # 2. ChromaDB 检索
+        chroma_results = self.chroma_collection.query(
+            query_texts=[query],
+            n_results=top_k * 2
+        )
+        
+        # 3. RRF 融合
+        fused_results = self._reciprocal_rank_fusion(
+            bm25_results,
+            chroma_results,
+            top_k=top_k
+        )
+        
+        return fused_results
+    
+    def _reciprocal_rank_fusion(
+        self,
+        bm25_results: List[MemorySearchResult],
+        chroma_results: dict,
+        top_k: int,
+        k: int = 60
+    ) -> List[MemorySearchResult]:
+        """
+        RRF 融合算法
+        
+        RRF(d) = Σ 1 / (k + rank(d))
+        
+        Args:
+            k: RRF 常数（通常为 60）
+        """
+        scores = {}
+        
+        # BM25 结果
+        for rank, result in enumerate(bm25_results, start=1):
+            key = result.situation
+            scores[key] = scores.get(key, 0) + 1 / (k + rank)
+        
+        # ChromaDB 结果
+        for rank, (doc, metadata) in enumerate(
+            zip(chroma_results['documents'][0], chroma_results['metadatas'][0]),
+            start=1
+        ):
+            key = doc
+            scores[key] = scores.get(key, 0) + 1 / (k + rank)
+        
+        # 排序并返回 top-k
+        sorted_keys = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)[:top_k]
+        
+        # 构建结果
+        results = []
+        for key in sorted_keys:
+            for result in bm25_results:
+                if result.situation == key:
+                    results.append(MemorySearchResult(
+                        situation=result.situation,
+                        recommendation=result.recommendation,
+                        score=scores[key],
+                        metadata=result.metadata
+                    ))
+                    break
+        
+        return results
+    
+    def clear(self):
+        """清空两个记忆系统"""
+        self.bm25_memory.clear()
+        self.chroma_collection.delete()
+```
+
+### 5.5 与 Agent 集成
+
+**在 CIO Agent 中使用记忆系统**：
+
+```python
+from app.memory.hybrid_memory import HybridMemory
+from app.memory.base import MemoryEntry
+from datetime import datetime
+
+# 初始化混合记忆（BM25 + ChromaDB）
+cio_memory = HybridMemory(
+    name="cio_decisions",
+    chroma_collection_name="cio_decision_memory"
+)
+
+# 添加历史决策
+cio_memory.add([
+    MemoryEntry(
+        situation="AAPL 在 2024-01-15 的分析：技术面 MACD 金叉，新闻面苹果发布 Vision Pro",
+        recommendation="强烈买入，目标价 $200，止损 $180",
+        metadata={
+            "symbol": "AAPL",
+            "date": "2024-01-15",
+            "actual_outcome": "涨幅 +15%",
+            "decision_quality": "excellent"
+        }
+    ),
+])
+
+# 在 Agent 中使用
+def cio_agent_with_memory(state: AgentState):
+    query = state["query"]
+    
+    # 检索相关历史决策
+    relevant_memories = cio_memory.search(query, top_k=3)
+    
+    # 构建 prompt（包含历史经验）
+    memory_context = "\n".join([
+        f"历史案例 {i+1}:\n情境: {m.situation}\n决策: {m.recommendation}\n结果: {m.metadata.get('actual_outcome', 'N/A')}"
+        for i, m in enumerate(relevant_memories)
+    ])
+    
+    prompt = f"""
+    你是 CIO，需要分析以下资产：
+    {query}
+    
+    参考以下历史决策经验：
+    {memory_context}
+    
+    当前分析报告：
+    - 量化报告：{state['quant_report']}
+    - 新闻报告：{state['news_report']}
+    - 社交报告：{state['social_report']}
+    
+    请给出你的投资建议。
+    """
+    
+    # 调用 LLM
+    llm = create_llm(agent_type="cio")
+    response = llm.invoke(prompt)
+    
+    # 保存本次决策到记忆
+    cio_memory.add([
+        MemoryEntry(
+            situation=f"{query} 的分析：{state['quant_report'][:100]}...",
+            recommendation=response.content,
+            metadata={
+                "date": datetime.now().isoformat(),
+                "run_id": state.get("run_id")
+            }
+        )
+    ])
+    
+    return {"final_decision": response.content}
+```
+
+### 5.6 记忆系统对比
+
+| 特性 | BM25Memory | ChromaDB RAG | HybridMemory |
+|------|-----------|--------------|--------------|
+| **检索方式** | 关键词匹配 | 语义相似度 | 混合（RRF 融合） |
+| **API 调用** | 无 | 需要（embedding） | 需要（embedding） |
+| **Token 限制** | 无 | 有 | 有 |
+| **精确匹配** | ✓ 优秀 | ✗ 较弱 | ✓ 优秀 |
+| **语义理解** | ✗ 不支持 | ✓ 优秀 | ✓ 优秀 |
+| **适用场景** | 股票代码、指标名称 | 模糊概念、情绪描述 | 综合查询 |
+
+**推荐使用策略**：
+- **Quant Agent**: BM25Memory（精确匹配技术指标名称）
+- **News Agent**: ChromaDB RAG（语义理解新闻主题）
+- **CIO Agent**: HybridMemory（综合历史决策经验）
+
+
+## 6. 实施计划
+
+### 6.1 阶段划分
+
+**阶段 1：数据提供商抽象层（第 1 周）**
+
+**任务清单**：
+1. 创建目录结构 `app/dataflows/`
+2. 实现 Pydantic 数据模型（`models.py`）
+3. 实现异步抽象基类（`base.py`）
+4. 实现 Redis 缓存层（`cache.py`）
+5. 实现 MCP 适配器（`providers/mcp_provider.py`）
+6. 实现 yfinance 适配器（`providers/yfinance_provider.py`）
+7. 实现路由器（`interface.py`）
+8. 编写单元测试
+
+**验收标准**：
+- MCP 服务器挂掉时自动降级到 yfinance
+- 历史数据缓存命中率 > 80%
+- 所有单元测试通过
+
+---
+
+**阶段 2：LLM 提供商工厂模式（第 2 周前半）**
+
+**任务清单**：
+1. 创建目录结构 `app/llm_clients/`
+2. 实现抽象基类（`base.py`）
+3. 实现 OpenAI 客户端（`providers/openai_client.py`）
+4. 实现 Anthropic 客户端（`providers/anthropic_client.py`）
+5. 实现 Google 客户端（`providers/google_client.py`）
+6. 实现配置系统（`config.py`）
+7. 实现工厂函数（`factory.py`）
+8. 重构 `app/llm_config.py`
+9. 更新 `app/graph_multi.py` 使用新工厂
+10. 编写单元测试
+
+**验收标准**：
+- 所有 Agent 使用专用模型配置
+- o 系列模型参数自动过滤
+- 结构化输出正常工作
+- 所有单元测试通过
+
+---
+
+**阶段 3：BM25 记忆系统（第 2 周后半）**
+
+**任务清单**：
+1. 创建目录结构 `app/memory/`
+2. 实现抽象基类（`base.py`）
+3. 实现 BM25 记忆（`bm25_memory.py`）
+4. 实现混合记忆（`hybrid_memory.py`）
+5. 集成到 CIO Agent
+6. 编写单元测试
+
+**验收标准**：
+- BM25 精确匹配股票代码和指标名称
+- 混合检索 RRF 融合正常工作
+- CIO Agent 能够引用历史决策
+- 所有单元测试通过
+
+### 6.2 迁移策略
+
+**向后兼容迁移**：
+
+1. **数据层迁移**：
+   ```python
+   # 旧代码继续工作
+   from app.mcp_client.finance_client import FinanceMCPClient
+   client = FinanceMCPClient("http://localhost:8000")
+   
+   # 新代码逐步迁移
+   from app.dataflows.interface import DataFlowRouter
+   router = DataFlowRouter()
+   ```
+
+2. **LLM 层迁移**：
+   ```python
+   # 旧代码继续工作
+   from app.llm_config import create_llm
+   llm = create_llm()
+   
+   # 新代码使用 Agent 专用配置
+   from app.llm_clients.factory import create_llm
+   llm = create_llm(agent_type="quant")
+   ```
+
+3. **逐个 Agent 迁移**：
+   - 第 1 周：迁移 Quant Agent
+   - 第 2 周：迁移 News Agent 和 Social Agent
+   - 第 3 周：迁移 CIO Agent（集成记忆系统）
+
+### 6.3 测试策略
+
+**单元测试**：
+
+```python
+# tests/test_dataflows.py
+import pytest
+from app.dataflows.interface import DataFlowRouter
+from app.dataflows.providers.mcp_provider import MCPDataProvider
+from datetime import datetime
+
+@pytest.mark.asyncio
+async def test_mcp_fallback_to_yfinance():
+    """测试 MCP 失败时自动降级到 yfinance"""
+    router = DataFlowRouter(config={
+        "data_vendors": {"stock_data": "mcp"},
+        "mcp_servers": {"market_data": "http://invalid:9999"},  # 无效地址
+    })
+    
+    # 应该自动降级到 yfinance
+    result = await router.get_stock_data(
+        "AAPL",
+        datetime(2024, 1, 1),
+        datetime(2024, 12, 31)
+    )
+    
+    assert len(result) > 0
+    assert result[0].symbol == "AAPL"
+
+@pytest.mark.asyncio
+async def test_cache_hit():
+    """测试缓存命中"""
+    router = DataFlowRouter(enable_cache=True)
+    
+    # 第一次调用（缓存未命中）
+    result1 = await router.get_stock_data("AAPL", ...)
+    
+    # 第二次调用（缓存命中）
+    result2 = await router.get_stock_data("AAPL", ...)
+    
+    assert result1 == result2
+```
+
+```python
+# tests/test_llm_clients.py
+import pytest
+from app.llm_clients.factory import create_llm_client
+
+def test_o_series_filters_temperature():
+    """测试 o 系列模型自动过滤 temperature"""
+    client = create_llm_client(
+        provider="openai",
+        model="o1",
+        temperature=0.7
+    )
+    
+    assert not client.supports_streaming()
+    llm = client.get_llm()
+    # 验证 temperature 未传递
+```
+
+```python
+# tests/test_memory.py
+from app.memory.bm25_memory import BM25Memory
+from app.memory.base import MemoryEntry
+
+def test_bm25_exact_match():
+    """测试 BM25 精确匹配股票代码"""
+    memory = BM25Memory("test")
+    
+    memory.add([
+        MemoryEntry(
+            situation="AAPL 在 2024-01-15 MACD 金叉",
+            recommendation="买入"
+        )
+    ])
+    
+    results = memory.search("AAPL", top_k=1)
+    
+    assert len(results) == 1
+    assert "AAPL" in results[0].situation
+```
+
+**集成测试**：
+
+```bash
+# 启动 MCP 服务器
+bash scripts/start_mcp_servers.sh
+
+# 运行集成测试
+uv run pytest tests/integration/ -v
+
+# 测试完整 Agent 流程
+uv run python -c "from app.graph_multi import run_once; print(run_once('Analyze AAPL'))"
+```
+
+
+## 7. 配置示例
+
+### 7.1 环境变量配置
+
+**`.env` 文件**：
+
+```bash
+# LLM API Keys
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
+
+# 数据提供商 API Keys
+POLYGON_API_KEY=...
+ALPHA_VANTAGE_API_KEY=...
+
+# Redis 缓存
+REDIS_URL=redis://localhost:6379
+
+# MCP 服务器地址
+MCP_MARKET_DATA_URL=http://localhost:8000
+MCP_NEWS_SEARCH_URL=http://localhost:8001
+```
+
+### 7.2 数据提供商配置
+
+**`app/dataflows/config.py`**：
+
+```python
+DEFAULT_CONFIG = {
+    # 数据提供商配置（类别级）
+    "data_vendors": {
+        "stock_data": "mcp",              # 主数据源：MCP
+        "technical_indicators": "mcp",
+        "news": "mcp",
+        "fundamentals": "yfinance",       # 基本面用 yfinance
+    },
+    
+    # 工具级覆盖（可选）
+    "tool_vendors": {
+        # 示例：特定工具使用不同提供商
+        # "get_stock_data": "polygon",
+    },
+    
+    # 备用提供商（降级策略）
+    "fallback_vendor": "yfinance",
+    
+    # MCP 服务器地址
+    "mcp_servers": {
+        "market_data": os.getenv("MCP_MARKET_DATA_URL", "http://localhost:8000"),
+        "news_search": os.getenv("MCP_NEWS_SEARCH_URL", "http://localhost:8001"),
+    },
+    
+    # Redis 缓存
+    "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379"),
+}
+```
+
+### 7.3 LLM 配置
+
+**`app/llm_clients/config.py`**：
+
+```python
+AGENT_MODEL_MAPPING = {
+    "quant": {
+        "provider": "openai",
+        "model": "o1",
+        "reasoning_effort": "high",
+        "streaming": False,
+    },
+    "news": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "extended_thinking": {"enabled": True, "budget_tokens": 10000},
+        "streaming": True,
+    },
+    "social": {
+        "provider": "google",
+        "model": "gemini-3.1-flash",
+        "thinking_level": "minimal",
+        "streaming": True,
+    },
+    "cio": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "extended_thinking": {"enabled": True, "budget_tokens": 20000},
+        "streaming": True,
+    },
+}
+```
+
+### 7.4 CLAUDE.md 更新
+
+```markdown
+## 架构改进（2026-03-26）
+
+### 数据提供商抽象层
+- 主数据源：MCP 服务器（localhost:8000, localhost:8001）
+- 备用数据源：yfinance（MCP 失败时自动降级）
+- 缓存策略：Redis（历史数据 7 天 TTL，新闻 1 小时 TTL）
+
+### LLM 提供商配置
+- Quant Agent: OpenAI o1（高推理能力）
+- News Agent: Claude Sonnet 4.6（长上下文）
+- Social Agent: Gemini 3.1 Flash（速度优先）
+- CIO Agent: Claude Opus 4.6（最强综合能力）
+
+### 记忆系统
+- CIO Agent 使用混合记忆（BM25 + ChromaDB）
+- 存储历史决策和反思记录
+- 支持精确关键词匹配和语义检索
+
+### 切换数据源
+修改 `app/dataflows/config.py` 中的 `data_vendors` 配置：
+```python
+"data_vendors": {
+    "stock_data": "polygon",  # 切换到 Polygon
+}
+```
+
+### 切换 LLM 提供商
+修改 `app/llm_clients/config.py` 中的 `AGENT_MODEL_MAPPING`：
+```python
+"quant": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-6",
+}
+```
+```
+
+
+## 8. 风险评估与缓解
+
+### 8.1 技术风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| **Redis 缓存故障** | 性能下降，但功能正常 | 低 | 缓存层可选，`enable_cache=False` 禁用 |
+| **异步迁移复杂度** | 开发周期延长 | 中 | 保持同步接口兼容，逐步迁移 |
+| **Pydantic V2 兼容性** | 序列化问题 | 低 | 使用 `model_dump()` 替代 `dict()` |
+| **o 系列模型限制** | 功能受限 | 低 | 自动过滤不支持参数 |
+| **提供商 API 变更** | 适配器失效 | 中 | 抽象层隔离变更，只需更新适配器 |
+
+### 8.2 性能风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| **Redis 缓存未命中** | 延迟增加 | 中 | 预热缓存，调整 TTL 策略 |
+| **异步并发问题** | 资源竞争 | 低 | 使用连接池，限制并发数 |
+| **BM25 索引重建慢** | 添加记忆延迟 | 低 | 批量添加，异步重建索引 |
+
+### 8.3 运维风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| **配置错误** | 服务不可用 | 中 | 配置验证，默认值兜底 |
+| **API Key 泄露** | 安全风险 | 低 | 使用环境变量，不提交 `.env` |
+| **MCP 服务器宕机** | 数据获取失败 | 中 | 自动降级到 yfinance |
+
+## 9. 总结
+
+### 9.1 核心价值
+
+本设计方案通过借鉴 TradingAgents 的三个核心架构模式，为 finance-agent 项目带来以下价值：
+
+1. **数据源灵活性**：
+   - 配置级切换数据提供商，无需改代码
+   - 运行时自动降级，提升系统可用性
+   - Redis 缓存降低 API 调用成本
+
+2. **LLM 提供商灵活性**：
+   - 支持 OpenAI/Anthropic/Google 多提供商
+   - Agent 专用模型优化（Quant 用推理模型，Social 用快速模型）
+   - 自动处理提供商特定限制（o 系列参数过滤）
+
+3. **决策质量提升**：
+   - BM25 记忆系统存储历史决策
+   - 混合检索（BM25 + ChromaDB）综合精确匹配和语义理解
+   - CIO Agent 能够引用历史经验
+
+### 9.2 关键设计亮点
+
+1. **Pydantic 数据契约**：所有数据提供商返回标准化模型，Agent 层完全解耦
+2. **异步高并发**：全异步接口，支持并发获取多只股票数据
+3. **智能缓存策略**：历史数据 7 天 TTL，新闻 1 小时 TTL
+4. **运行时降级**：MCP 超时自动切换 yfinance，对用户透明
+5. **结构化输出统一接口**：`get_structured_llm(schema)` 处理提供商差异
+6. **RRF 混合检索**：BM25 精确匹配 + ChromaDB 语义理解
+
+### 9.3 实施建议
+
+1. **优先级排序**：
+   - P0：数据提供商抽象层（解决 yfinance 超时问题）
+   - P1：LLM 提供商工厂（优化 Agent 模型分配）
+   - P2：BM25 记忆系统（提升决策质量）
+
+2. **渐进迁移**：
+   - 保持向后兼容，旧代码继续工作
+   - 逐个 Agent 迁移到新抽象层
+   - 充分测试后再全面切换
+
+3. **监控指标**：
+   - 缓存命中率（目标 > 80%）
+   - 降级触发次数（监控 MCP 稳定性）
+   - Agent 响应时间（异步优化效果）
+   - 记忆检索准确率（BM25 vs ChromaDB）
+
+### 9.4 后续扩展方向
+
+1. **数据提供商扩展**：
+   - 添加 Polygon 适配器
+   - 添加 Alpha Vantage 适配器
+   - 支持自定义数据源
+
+2. **LLM 提供商扩展**：
+   - 添加 xAI Grok 支持
+   - 添加本地模型（Ollama）支持
+   - 支持模型路由（根据任务复杂度自动选择模型）
+
+3. **记忆系统增强**：
+   - 定期回顾历史决策的实际结果
+   - 基于结果质量调整记忆权重
+   - 支持记忆遗忘（淘汰低质量决策）
+
+---
+
+**设计完成日期**：2026-03-26  
+**预计实施周期**：2 周  
+**风险等级**：低  
+**预期收益**：高
+
