@@ -119,6 +119,49 @@ def fetch_recent_ohlc(symbols: List[str], days: int = 5) -> Dict[str, List[Dict]
         return {}
 
 
+async def _fetch_with_rate_limit(
+    symbols: List[str],
+    days: int,
+    delay: float
+) -> Dict[str, List[Dict]]:
+    """Fetch stock data with rate limiting to avoid Yahoo Finance ban.
+
+    Args:
+        symbols: List of stock symbols
+        days: Number of days to fetch
+        delay: Delay between requests in seconds
+
+    Returns:
+        Dict mapping symbol to list of OHLC records
+    """
+    result = {}
+
+    for i, symbol in enumerate(symbols):
+        try:
+            # Add delay between requests (except first one)
+            if i > 0:
+                await asyncio.sleep(delay)
+
+            # Fetch data for single symbol
+            data = await asyncio.to_thread(
+                fetch_recent_ohlc,
+                [symbol],
+                days
+            )
+
+            if symbol in data:
+                result[symbol] = data[symbol]
+                logger.debug(f"Fetched {len(data[symbol])} records for {symbol}")
+            else:
+                logger.warning(f"No data returned for {symbol}")
+
+        except Exception as exc:
+            logger.error(f"Failed to fetch {symbol}: {exc}")
+            continue
+
+    return result
+
+
 def update_stocks_intraday_sync() -> None:
     """Blocking intraday update routine meant to run in a worker thread."""
     if not should_update_stocks():
