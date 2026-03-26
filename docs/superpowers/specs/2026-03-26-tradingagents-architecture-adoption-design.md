@@ -131,7 +131,7 @@ app/dataflows/
 **`app/dataflows/models.py`**：
 
 ```python
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_validator
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
@@ -144,10 +144,23 @@ class StockCandle(BaseModel):
     low: float
     close: float
     volume: int
-    
+
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime, _info):
         return dt.isoformat()
+
+    @model_validator(mode='after')
+    def validate_ohlc(self) -> 'StockCandle':
+        """验证 OHLC 数据逻辑一致性"""
+        if self.high < self.low:
+            raise ValueError("high must be >= low")
+        if self.high < self.open or self.high < self.close:
+            raise ValueError("high must be >= open and close")
+        if self.low > self.open or self.low > self.close:
+            raise ValueError("low must be <= open and close")
+        if self.volume < 0:
+            raise ValueError("volume must be >= 0")
+        return self
 
 class TechnicalIndicator(BaseModel):
     """技术指标数据"""
@@ -363,6 +376,9 @@ from app.dataflows.base import (
 from app.dataflows.models import StockCandle, TechnicalIndicator, NewsArticle, FundamentalsData
 from app.dataflows.cache import DataCache, CacheConfig
 from app.dataflows.config import DEFAULT_CONFIG
+from app.dataflows.providers.mcp_provider import MCPDataProvider
+from app.dataflows.providers.yfinance_provider import YFinanceProvider
+from app.dataflows.providers.polygon_provider import PolygonProvider
 
 logger = logging.getLogger(__name__)
 
@@ -435,13 +451,32 @@ class DataFlowRouter:
             result = await method(*args, **kwargs)
             logger.info(f"✓ {method_name} succeeded with {primary_vendor}")
             return result
-        
+
         except (ProviderTimeoutError, ProviderRateLimitError, ProviderError) as e:
             logger.warning(f"✗ {method_name} failed with {primary_vendor}: {e}")
-            
+
             # 如果有备用提供商，尝试降级
             if fallback_vendor:
                 logger.info(f"↻ Falling back to {fallback_vendor}...")
+                try:
+                    fallback_provider = self._get_provider(fallback_vendor)
+                    fallback_method = getattr(fallback_provider, method_name)
+                    result = await fallback_method(*args, **kwargs)
+                    logger.info(f"✓ {method_name} succeeded with fallback {fallback_vendor}")
+                    return result
+                except Exception as fallback_error:
+                    logger.error(f"✗ Fallback {fallback_vendor} also failed: {fallback_error}")
+                    raise fallback_error
+            else:
+                raise e
+
+        except Exception as e:
+            # 捕获所有其他未预期的异常
+            logger.error(f"✗ Unexpected error with {primary_vendor}: {type(e).__name__}: {e}")
+
+            # 尝试降级
+            if fallback_vendor:
+                logger.info(f"↻ Falling back to {fallback_vendor} due to unexpected error...")
                 try:
                     fallback_provider = self._get_provider(fallback_vendor)
                     fallback_method = getattr(fallback_provider, method_name)
@@ -667,7 +702,11 @@ class OpenAIClient(BaseLLMClient):
     def get_structured_llm(self, schema: Type[BaseModel]) -> ChatOpenAI:
         """OpenAI 的结构化输出使用 Native JSON Schema"""
         llm = self.get_llm()
-        return llm.with_structured_output(schema, method="json_schema")
+        try:
+            return llm.with_structured_output(schema, method="json_schema")
+        except Exception as e:
+            logger.warning(f"json_schema method failed, falling back to json_mode: {e}")
+            return llm.with_structured_output(schema, method="json_mode")
     
     def get_provider_name(self) -> str:
         return "OpenAI"
@@ -848,15 +887,34 @@ class LLMConfig:
     def get_agent_config(cls, agent_type: str) -> Dict[str, Any]:
         """获取 Agent 专用配置（带默认值）"""
         config = cls.AGENT_MODEL_MAPPING.get(agent_type, {}).copy()
-        
+
         # 填充默认值
         config.setdefault("provider", cls.DEFAULT_PROVIDER)
         config.setdefault("model", cls.DEFAULT_MODEL)
         config.setdefault("streaming", cls.DEFAULT_STREAMING)
         config.setdefault("max_retries", cls.DEFAULT_MAX_RETRIES)
         config.setdefault("temperature", cls.DEFAULT_TEMPERATURE)
-        
+
         return config
+
+    @classmethod
+    def get_provider_config(cls, provider: str) -> Dict[str, Any]:
+        """获取提供商配置"""
+        provider_configs = {
+            "openai": {
+                "default_model": "gpt-4o",
+                "supports_reasoning_effort": True,
+            },
+            "anthropic": {
+                "default_model": "claude-opus-4-6",
+                "supports_extended_thinking": True,
+            },
+            "google": {
+                "default_model": "gemini-3.1-pro",
+                "supports_thinking_level": True,
+            },
+        }
+        return provider_configs.get(provider, {"default_model": cls.DEFAULT_MODEL})
 ```
 
 **Agent 模型分配策略**：
