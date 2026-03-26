@@ -683,6 +683,7 @@ class MCPDataProvider(BaseDataProvider):
             candles = []
             for row in raw_data.get("data", []):
                 candles.append(StockCandle(
+                    symbol=symbol,
                     timestamp=datetime.fromisoformat(row["timestamp"]),
                     open=float(row["open"]),
                     high=float(row["high"]),
@@ -1252,7 +1253,12 @@ git commit -m "feat(dataflows): add DataFlowRouter with fallback logic
 **Files:**
 - Create: `tests/integration/test_dataflows_integration.py`
 
-- [ ] **Step 1: Write integration test**
+- [ ] **Step 1: Create integration test directory**
+
+Run: `mkdir -p tests/integration`
+Expected: Directory created
+
+- [ ] **Step 2: Write integration test**
 
 ```python
 # tests/integration/test_dataflows_integration.py
@@ -1309,12 +1315,12 @@ async def test_mcp_to_yfinance_fallback():
     assert len(result) > 0  # yfinance should succeed
 ```
 
-- [ ] **Step 2: Run integration tests**
+- [ ] **Step 3: Run integration tests**
 
 Run: `uv run pytest tests/integration/ -v -m integration`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/integration/
