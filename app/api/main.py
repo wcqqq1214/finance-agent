@@ -180,6 +180,17 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
     logger.info("Starting Finance Agent API...")
+
+    # Prewarm Redis connection pool before any concurrent operations
+    from app.services.redis_client import get_redis_client, ping_redis
+    try:
+        client = await get_redis_client()
+        if client is not None:
+            await ping_redis()
+            logger.info("✓ Redis connection pool prewarmed")
+    except Exception as exc:
+        logger.warning(f"Redis prewarm failed (will use fallback): {exc}")
+
     app.state.arq_pool = await create_arq_pool()
 
     # Initialize agent history database
