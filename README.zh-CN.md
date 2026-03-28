@@ -473,9 +473,54 @@ uv run python scripts/process_layer1.py
 3. **CIO 汇总**：将所有报告合成为最终建议
 4. **输出**：结构化 JSON/Markdown 报告，包含交易信号
 
+## 代码质量
+
+本项目使用 [Ruff](https://docs.astral.sh/ruff/) 进行代码检查和格式化。
+
+### 配置
+
+Ruff 配置位于 `pyproject.toml`：
+- **行长度限制**：100 字符
+- **目标版本**：Python 3.13
+- **启用规则**：pycodestyle (E)、Pyflakes (F)、isort (I)、pep8-naming (N)、flake8-bugbear (B)
+
+### 使用方法
+
+**检查代码问题：**
+```bash
+uv run ruff check .
+```
+
+**自动修复问题：**
+```bash
+uv run ruff check --fix .
+```
+
+**格式化代码：**
+```bash
+uv run ruff format .
+```
+
+**检查特定文件：**
+```bash
+uv run ruff check app/graph_multi.py
+```
+
+**提交前检查：**
+```bash
+# 格式化并修复所有问题
+uv run ruff format .
+uv run ruff check --fix .
+```
+
 ## 贡献
 
 欢迎贡献！请随时提交 Pull Request。
+
+**提交前请确保：**
+1. 运行 `uv run ruff format .` 格式化代码
+2. 运行 `uv run ruff check --fix .` 修复代码检查问题
+3. 运行 `uv run pytest tests/` 确保所有测试通过
 
 ## License
 

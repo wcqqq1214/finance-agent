@@ -510,9 +510,54 @@ User Query
 3. **CIO Synthesis**: Combines all reports into final recommendation
 4. **Output**: Structured JSON/Markdown report with trading signals
 
+## Code Quality
+
+This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and code formatting.
+
+### Configuration
+
+Ruff is configured in `pyproject.toml`:
+- **Line length**: 100 characters
+- **Target version**: Python 3.13
+- **Enabled rules**: pycodestyle (E), Pyflakes (F), isort (I), pep8-naming (N), flake8-bugbear (B)
+
+### Usage
+
+**Check code for issues:**
+```bash
+uv run ruff check .
+```
+
+**Auto-fix issues:**
+```bash
+uv run ruff check --fix .
+```
+
+**Format code:**
+```bash
+uv run ruff format .
+```
+
+**Check specific files:**
+```bash
+uv run ruff check app/graph_multi.py
+```
+
+**Before committing:**
+```bash
+# Format and fix all issues
+uv run ruff format .
+uv run ruff check --fix .
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+**Before submitting:**
+1. Run `uv run ruff format .` to format your code
+2. Run `uv run ruff check --fix .` to fix linting issues
+3. Ensure all tests pass with `uv run pytest tests/`
 
 ## License
 
