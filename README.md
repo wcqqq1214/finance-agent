@@ -1,4 +1,4 @@
-# finance-agent
+# Q-Agents
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -38,7 +38,7 @@ A multi-agent financial analysis system built with Python 3.13, LangChain, and L
 
 ```bash
 git clone <your-repo-url>
-cd finance-agent
+cd q-agents
 ```
 
 ### 2. Create and activate a virtual environment
@@ -289,10 +289,10 @@ bash scripts/stop_mcp_servers.sh
 Start individual servers:
 ```bash
 # Market Data
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/market_data/main.py
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/market_data/main.py
 
 # News Search
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/news_search/main.py
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/news_search/main.py
 ```
 
 ### Troubleshooting
@@ -396,7 +396,7 @@ curl http://localhost:8080/api/tool-calls/stats
 **Test the system:**
 
 ```bash
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python scripts/test_agent_history.py
+PYTHONPATH=/home/wcqqq21/q-agents uv run python scripts/test_agent_history.py
 ```
 
 ## Project layout

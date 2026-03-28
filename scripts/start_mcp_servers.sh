@@ -2,11 +2,11 @@
 # Start all MCP servers
 
 echo "Starting Market Data MCP Server..."
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/market_data/main.py &
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/market_data/main.py &
 MARKET_DATA_PID=$!
 
 echo "Starting News Search MCP Server..."
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/news_search/main.py &
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/news_search/main.py &
 NEWS_SEARCH_PID=$!
 
 echo "MCP Servers started:"

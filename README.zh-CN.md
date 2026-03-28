@@ -1,10 +1,10 @@
-# finance-agent
+# Q-Agents
 
 [English](README.md) | 中文
 
 ---
 
-基于 Python 3.13、LangChain 与 LangGraph 的多智能体金融分析系统，采用 Fan-out / Fan-in 拓扑（Quant 与 News 并行，最后由 CIO 汇总），通过 Claude/OpenAI 与 MCP 服务器获取行情/指标与新闻并生成报告。同时，独立的 Social Agent 会抓取 Reddit 讨论并生成结构化的散户情绪报告。
+基于 Python 3.13、LangChain 与 LangGraph 的多智能体金融分析系统，采用 Fan-out / Fan-in 拓扑（Quant 与 News 并行,最后由 CIO 汇总），通过 Claude/OpenAI 与 MCP 服务器获取行情/指标与新闻并生成报告。同时，独立的 Social Agent 会抓取 Reddit 讨论并生成结构化的散户情绪报告。
 
 ## 功能特性
 
@@ -38,7 +38,7 @@
 
 ```bash
 git clone <你的仓库地址>
-cd finance-agent
+cd q-agents
 ```
 
 ### 2. 创建并激活虚拟环境
@@ -289,10 +289,10 @@ bash scripts/stop_mcp_servers.sh
 启动单个服务器：
 ```bash
 # 市场数据
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/market_data/main.py
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/market_data/main.py
 
 # 新闻搜索
-PYTHONPATH=/home/wcqqq21/finance-agent uv run python mcp_servers/news_search/main.py
+PYTHONPATH=/home/wcqqq21/q-agents uv run python mcp_servers/news_search/main.py
 ```
 
 ### 故障排查

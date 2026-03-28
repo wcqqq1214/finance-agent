@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Finance Agent",
+  title: "Q-Agents",
   description: "Multi-agent financial analysis system",
 };
 
