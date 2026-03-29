@@ -86,6 +86,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
   const [error, setError] = useState<string | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [timezoneInfo] = useState(getTimezoneInfo());
 
@@ -388,7 +389,13 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           <p className="text-sm text-muted-foreground">No data available</p>
         </div>
       ) : (
-        <div ref={chartContainerRef} className="flex-1" />
+        <div className="flex-1 relative">
+          <div ref={chartContainerRef} className="absolute inset-0" />
+          <div
+            ref={legendRef}
+            className="absolute top-2 left-2 z-10 hidden text-xs font-mono bg-background/80 px-1.5 py-0.5 rounded pointer-events-none"
+          />
+        </div>
       )}
     </div>
   );
