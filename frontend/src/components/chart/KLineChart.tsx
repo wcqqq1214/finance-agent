@@ -191,6 +191,9 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       chartRef.current = null;
     }
 
+    // Track last displayed date for smart date/time formatting
+    let lastDisplayedDate: string | null = null;
+
     // Create chart
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
@@ -227,7 +230,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: number | string, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: number | string) => {
           // For daily+ data, time is a string (YYYY-MM-DD)
           if (typeof time === 'string') {
             return time;
@@ -240,15 +243,12 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           const hours = String(date.getHours()).padStart(2, '0');
           const minutes = String(date.getMinutes()).padStart(2, '0');
 
-          // Show date at midnight (00:00) or start of trading day
-          // This ensures at least one date marker per day
-          if (hours === '00' && minutes === '00') {
-            return `${month}-${day}`;
-          }
+          const currentDate = `${month}-${day}`;
 
-          // Also show date at major time boundaries (every 6 hours)
-          if (minutes === '00' && (hours === '00' || hours === '06' || hours === '12' || hours === '18')) {
-            return `${month}-${day}`;
+          // If this is a new day (date changed), show the date
+          if (lastDisplayedDate !== currentDate) {
+            lastDisplayedDate = currentDate;
+            return currentDate;
           }
 
           // Otherwise show time
