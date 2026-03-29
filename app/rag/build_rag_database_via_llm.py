@@ -555,10 +555,6 @@ def build_and_store_memory(
         logger.warning("build_and_store_memory: empty ticker; aborted.")
         return
 
-    docs: List[str] = []
-    metadatas: List[Dict[str, str]] = []
-    # For de-duplication at the (ticker, source_url) level. Each value is
-    # (doc, metadata, doc_length).
     best_by_url: Dict[Tuple[str, str], Tuple[str, Dict[str, str], int]] = {}
 
     for year in years:
@@ -649,7 +645,6 @@ def main() -> None:
 
     summary: Dict[str, Dict[str, int]] = {}
     for ticker in tickers:
-        before_docs: int = 0
         try:
             build_and_store_memory(ticker=ticker, years=years)
             # We do not track individual doc counts here because

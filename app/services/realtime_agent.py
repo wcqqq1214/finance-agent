@@ -146,7 +146,7 @@ async def warmup_hot_cache() -> None:
     # Check results and log any failures
     success_count = 0
     failure_count = 0
-    for (symbol, interval, _), result in zip(tasks, results):
+    for (symbol, interval, _), result in zip(tasks, results, strict=False):
         if isinstance(result, Exception):
             failure_count += 1
             logger.error(f"✗ Failed to warmup {symbol} {interval}: {result}", exc_info=result)

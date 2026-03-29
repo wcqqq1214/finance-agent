@@ -66,7 +66,7 @@ return 1
 """
 
 
-class RateLimitExceeded(RuntimeError):
+class RateLimitExceededError(RuntimeError):
     """Raised when an upstream request would exceed its rate limit."""
 
 
@@ -292,7 +292,7 @@ def rate_limit(
                     identifier = f"{identifier}:{func.__name__}"
                 allowed = await acquire_rate_limit(exchange, identifier)
                 if not allowed:
-                    raise RateLimitExceeded(f"Rate limit exceeded for {exchange} ({identifier})")
+                    raise RateLimitExceededError(f"Rate limit exceeded for {exchange} ({identifier})")
                 return await func(*args, **kwargs)
 
             return async_wrapper
@@ -304,7 +304,7 @@ def rate_limit(
                 identifier = f"{identifier}:{func.__name__}"
             allowed = acquire_rate_limit_sync(exchange, identifier)
             if not allowed:
-                raise RateLimitExceeded(f"Rate limit exceeded for {exchange} ({identifier})")
+                raise RateLimitExceededError(f"Rate limit exceeded for {exchange} ({identifier})")
             return func(*args, **kwargs)
 
         return sync_wrapper

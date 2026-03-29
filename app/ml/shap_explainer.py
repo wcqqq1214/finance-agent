@@ -105,7 +105,7 @@ def explain_latest_sample(
     feature_values = latest.iloc[0].tolist()
 
     impacts: List[ShapFeatureImpact] = []
-    for name, val, sv in zip(feature_names, feature_values, contrib):
+    for name, val, sv in zip(feature_names, feature_values, contrib, strict=False):
         impacts.append(
             ShapFeatureImpact(
                 feature=name,

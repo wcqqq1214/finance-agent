@@ -63,13 +63,13 @@ class MCPDataProvider(BaseDataProvider):
             return candles
 
         except httpx.TimeoutException as e:
-            raise ProviderTimeoutError(f"MCP timeout: {e}")
+            raise ProviderTimeoutError(f"MCP timeout: {e}") from e
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                raise ProviderRateLimitError(f"MCP rate limit: {e}")
-            raise ProviderError(f"MCP HTTP error: {e}")
+                raise ProviderRateLimitError(f"MCP rate limit: {e}") from e
+            raise ProviderError(f"MCP HTTP error: {e}") from e
         except Exception as e:
-            raise ProviderError(f"MCP error: {e}")
+            raise ProviderError(f"MCP error: {e}") from e
 
     async def get_technical_indicators(
         self,
@@ -112,9 +112,9 @@ class MCPDataProvider(BaseDataProvider):
             return articles
 
         except httpx.TimeoutException as e:
-            raise ProviderTimeoutError(f"MCP news timeout: {e}")
+            raise ProviderTimeoutError(f"MCP news timeout: {e}") from e
         except Exception as e:
-            raise ProviderError(f"MCP news error: {e}")
+            raise ProviderError(f"MCP news error: {e}") from e
 
     async def get_fundamentals(self, symbol: str) -> FundamentalsData:
         """获取基本面数据"""

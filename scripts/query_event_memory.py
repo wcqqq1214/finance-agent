@@ -45,7 +45,7 @@ def query_events(ticker=None, sentiment=None, date_from=None, date_to=None, limi
 
     # Filter by date and collect matching events
     matching_events = []
-    for doc_id, doc, meta in zip(results["ids"], results["documents"], results["metadatas"]):
+    for doc_id, doc, meta in zip(results["ids"], results["documents"], results["metadatas"], strict=False):
         # Filter by date if specified
         if date_from and meta["date"] < date_from:
             continue
@@ -60,7 +60,7 @@ def query_events(ticker=None, sentiment=None, date_from=None, date_to=None, limi
     print(f"Found {len(matching_events)} events")
     print("=" * 80)
 
-    for i, (doc_id, doc, meta) in enumerate(matching_events, 1):
+    for i, (_doc_id, doc, meta) in enumerate(matching_events, 1):
         print(f"\n[{i}] {meta['ticker']} - {meta['date']}")
         print(f"Sentiment: {meta.get('sentiment', 'N/A')}")
         print(f"Title: {meta['source_title'][:80]}...")

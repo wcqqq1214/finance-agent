@@ -57,7 +57,7 @@ class YFinanceProvider(BaseDataProvider):
             return candles
 
         except Exception as e:
-            raise ProviderError(f"yfinance error: {e}")
+            raise ProviderError(f"yfinance error: {e}") from e
 
     async def get_technical_indicators(
         self,
@@ -98,7 +98,7 @@ class YFinanceProvider(BaseDataProvider):
             return articles
 
         except Exception as e:
-            raise ProviderError(f"yfinance news error: {e}")
+            raise ProviderError(f"yfinance news error: {e}") from e
 
     async def get_fundamentals(self, symbol: str) -> FundamentalsData:
         """获取基本面数据（异步非阻塞）"""
@@ -122,4 +122,4 @@ class YFinanceProvider(BaseDataProvider):
             )
 
         except Exception as e:
-            raise ProviderError(f"yfinance fundamentals error: {e}")
+            raise ProviderError(f"yfinance fundamentals error: {e}") from e

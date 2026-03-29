@@ -49,7 +49,7 @@ def export_events(output_file="events.txt", ticker=None, limit=None, latest=Fals
     where = {"ticker": ticker} if ticker else None
     results = db.get(where=where, limit=limit or 50000)
 
-    events = list(zip(results["ids"], results["documents"], results["metadatas"]))
+    events = list(zip(results["ids"], results["documents"], results["metadatas"], strict=False))
 
     # Sort by date if latest mode
     if latest:
@@ -74,7 +74,7 @@ def export_events(output_file="events.txt", ticker=None, limit=None, latest=Fals
         f.write("=" * 80 + "\n\n")
 
         # Events
-        for i, (doc_id, doc, meta) in enumerate(events, 1):
+        for i, (_doc_id, doc, meta) in enumerate(events, 1):
             f.write(f"\n{'=' * 80}\n")
             f.write(f"事件 #{i}\n")
             f.write(f"{'=' * 80}\n")

@@ -621,7 +621,7 @@ class OKXTradingClient:
             logger.error(
                 f"[OKX-{'DEMO' if self.is_demo else 'LIVE'}] Unexpected error getting candles: {e}"
             )
-            raise OKXError(f"Failed to get candles: {str(e)}")
+            raise OKXError(f"Failed to get candles: {str(e)}") from e
 
     @rate_limit(exchange="okx", identifier_key="self._api_key", per_function=True)
     async def get_ticker(self, inst_id: str) -> Dict[str, Any]:

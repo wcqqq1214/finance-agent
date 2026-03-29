@@ -180,7 +180,7 @@ def _run_react_until_final_text(
                                 ):
                                     try:
                                         tool_result = json.loads(next_msg.content)
-                                    except:
+                                    except Exception:
                                         tool_result = {"raw": next_msg.content}
                                     break
 

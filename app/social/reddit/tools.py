@@ -387,7 +387,7 @@ def get_reddit_discussion(
 
     # JSON-only strategy with up to 5 retry attempts; we never fall back to Playwright
     last_exc: Optional[Exception] = None
-    for attempt in range(5):
+    for _attempt in range(5):
         try:
             text, meta = _get_reddit_discussion_via_json(
                 asset=normalized_asset,
