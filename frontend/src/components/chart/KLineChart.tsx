@@ -191,6 +191,9 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       chartRef.current = null;
     }
 
+    // Track displayed dates to show each date only once
+    const displayedDates = new Set<string>();
+
     // Create chart
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
@@ -233,11 +236,22 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
             return time;
           }
           // For intraday data, time is Unix seconds
-          // Always show date only on x-axis, time will be shown in tooltip
           const date = new Date(time * 1000);
           const month = String(date.getMonth() + 1).padStart(2, '0');
           const day = String(date.getDate()).padStart(2, '0');
-          return `${month}-${day}`;
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+
+          const dateKey = `${month}-${day}`;
+
+          // Show date only at 00:00 or if this date hasn't been shown yet
+          if ((hours === '00' && minutes === '00') || !displayedDates.has(dateKey)) {
+            displayedDates.add(dateKey);
+            return dateKey;
+          }
+
+          // Otherwise show time
+          return `${hours}:${minutes}`;
         },
       },
       rightPriceScale: {
