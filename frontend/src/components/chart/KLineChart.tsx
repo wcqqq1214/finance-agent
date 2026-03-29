@@ -236,16 +236,17 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
             return time;
           }
           // For intraday data, time is Unix seconds
+          // Convert to local time (browser timezone, which should be UTC+8)
           const date = new Date(time * 1000);
           const month = String(date.getMonth() + 1).padStart(2, '0');
           const day = String(date.getDate()).padStart(2, '0');
-          const hours = String(date.getHours()).padStart(2, '0');
-          const minutes = String(date.getMinutes()).padStart(2, '0');
+          const hours = date.getHours();
+          const minutes = date.getMinutes();
 
           const dateKey = `${month}-${day}`;
 
-          // Show date only at 00:00 or if this date hasn't been shown yet
-          if ((hours === '00' && minutes === '00') || !displayedDates.has(dateKey)) {
+          // Show date only at local 00:00 (UTC+8) or if this date hasn't been shown yet
+          if ((hours === 0 && minutes === 0) || !displayedDates.has(dateKey)) {
             displayedDates.add(dateKey);
             return dateKey;
           }
