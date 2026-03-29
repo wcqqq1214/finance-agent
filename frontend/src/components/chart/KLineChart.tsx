@@ -235,20 +235,14 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           // For intraday data, time is Unix seconds
           // Convert to local time (browser timezone, which should be UTC+8)
           const date = new Date(time * 1000);
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
           const hours = String(date.getHours()).padStart(2, '0');
           const minutes = String(date.getMinutes()).padStart(2, '0');
 
-          // For time axis, show different formats based on zoom level
-          // If it's a new day, show date; otherwise just show time
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-
-          // Check if this is midnight or close to start of day
-          if (date.getHours() === 0 && date.getMinutes() === 0) {
-            return `${month}-${day}`;
-          }
-
-          return `${hours}:${minutes}`;
+          // Always show date and time for intraday data
+          return `${year}-${month}-${day} ${hours}:${minutes}`;
         },
       },
       rightPriceScale: {
