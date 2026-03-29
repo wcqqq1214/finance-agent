@@ -43,7 +43,7 @@ ALPHA_CORE_TICKERS = [
 def run_one(ticker: str) -> dict:
     """Run pipeline for one ticker; return metrics dict (and optional model/X/y)."""
     df = load_ohlcv_with_macro(ticker.strip().upper(), period_years=5)
-    X, y = build_dataset(df)
+    X, y = build_dataset(df)  # noqa: N806
     model, metrics = train_lightgbm(X, y, n_splits=5)
     return {
         "ticker": ticker,

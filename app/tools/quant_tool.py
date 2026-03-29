@@ -79,7 +79,7 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
 
     try:
         df = load_ohlcv_with_macro(normalized, period_years=5)
-        X, y = build_dataset(df)
+        X, y = build_dataset(df)  # noqa: N806
         model, metrics = train_lightgbm(X, y)
         prob_up = predict_proba_latest(model, X)
         shap_summary = explain_latest_sample(model, X)
