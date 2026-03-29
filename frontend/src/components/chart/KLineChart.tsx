@@ -12,6 +12,12 @@ interface KLineChartProps {
   assetType: 'crypto' | 'stocks';
 }
 
+function formatVolume(vol: number): string {
+  if (vol >= 1_000_000) return (vol / 1_000_000).toFixed(2) + 'M';
+  if (vol >= 1_000) return (vol / 1_000).toFixed(2) + 'K';
+  return vol.toFixed(2);
+}
+
 function calculateDateRange(range: TimeRange): { start: string; end: string } {
   const end = new Date();
   const start = new Date();
@@ -278,12 +284,6 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
 
     series.setData(formattedData);
     volumeSeries.setData(volumeData);
-
-    const formatVolume = (vol: number): string => {
-      if (vol >= 1_000_000) return (vol / 1_000_000).toFixed(2) + 'M';
-      if (vol >= 1_000) return (vol / 1_000).toFixed(2) + 'K';
-      return vol.toFixed(2);
-    };
 
     chart.subscribeCrosshairMove((param) => {
       const legend = legendRef.current;
