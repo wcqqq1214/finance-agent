@@ -26,7 +26,7 @@ import requests
 from tqdm import tqdm
 
 # Add project root to Python path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.database.batch_operations import BatchInserter
