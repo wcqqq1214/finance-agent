@@ -279,6 +279,35 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     series.setData(formattedData);
     volumeSeries.setData(volumeData);
 
+    const formatVolume = (vol: number): string => {
+      if (vol >= 1_000_000) return (vol / 1_000_000).toFixed(2) + 'M';
+      if (vol >= 1_000) return (vol / 1_000).toFixed(2) + 'K';
+      return vol.toFixed(2);
+    };
+
+    chart.subscribeCrosshairMove((param) => {
+      const legend = legendRef.current;
+      if (!legend) return;
+
+      if (
+        !param.time ||
+        param.point === undefined ||
+        param.point.x < 0 ||
+        param.point.y < 0
+      ) {
+        legend.style.display = 'none';
+        return;
+      }
+
+      const volData = param.seriesData.get(volumeSeries) as { value: number } | undefined;
+      if (volData) {
+        legend.style.display = 'block';
+        legend.textContent = `Vol  ${formatVolume(volData.value)}`;
+      } else {
+        legend.style.display = 'none';
+      }
+    });
+
     // Set initial visible range based on time granularity
     // This shows recent data while keeping all historical data available for zooming
     if (formattedData.length > 0) {
