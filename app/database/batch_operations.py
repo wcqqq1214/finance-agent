@@ -85,7 +85,7 @@ class BatchInserter:
         """
 
         try:
-            cursor = self.conn.executemany(query, self.buffer)
+            self.conn.executemany(query, self.buffer)
             self.conn.commit()
             self.total_inserted += len(self.buffer)
             logger.info(

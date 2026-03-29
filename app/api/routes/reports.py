@@ -71,4 +71,4 @@ async def get_report(report_id: str):
                 social_sentiment=data.get("social_sentiment"),
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading report: {str(e)}") from e

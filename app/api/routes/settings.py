@@ -19,7 +19,7 @@ async def get_settings():
         settings = config_manager.get_settings()
         return SettingsResponse(**settings)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get settings: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get settings: {str(e)}") from e
 
 
 @router.put("/settings", response_model=SettingsResponse)
@@ -37,4 +37,4 @@ async def update_settings(request: SettingsRequest):
         settings = config_manager.update_settings(updates)
         return SettingsResponse(**settings)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}") from e

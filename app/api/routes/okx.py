@@ -57,19 +57,19 @@ async def get_account_balance(
         return {"mode": mode, "balances": balances}
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/okx/trade/order")
@@ -107,25 +107,25 @@ async def place_order(request: PlaceOrderRequest) -> Dict[str, Any]:
         }
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXInsufficientBalanceError as e:
         logger.error(f"Insufficient balance error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXOrderError as e:
         logger.error(f"Order error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.delete("/okx/trade/order/{order_id}")
@@ -164,25 +164,25 @@ async def cancel_order(
         }
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXInsufficientBalanceError as e:
         logger.error(f"Insufficient balance error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXOrderError as e:
         logger.error(f"Order error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/okx/trade/order/{order_id}")
@@ -218,25 +218,25 @@ async def get_order_details(
         return {"mode": mode, "order": order}
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXInsufficientBalanceError as e:
         logger.error(f"Insufficient balance error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXOrderError as e:
         logger.error(f"Order error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/okx/trade/orders/history")
@@ -272,25 +272,25 @@ async def get_order_history(
         return {"mode": mode, "orders": orders}
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXInsufficientBalanceError as e:
         logger.error(f"Insufficient balance error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXOrderError as e:
         logger.error(f"Order error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/okx/account/positions")
@@ -320,16 +320,16 @@ async def get_account_positions(
         return {"mode": mode, "positions": positions}
     except OKXAuthError as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except OKXRateLimitError as e:
         logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except OKXConfigError as e:
         logger.error(f"Configuration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OKXError as e:
         logger.error(f"OKX error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

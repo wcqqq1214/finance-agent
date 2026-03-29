@@ -73,7 +73,7 @@ def get_stock_ohlc_from_db(
         if start_date > end_date:
             raise HTTPException(status_code=400, detail="start date must be before end date")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}") from e
 
     # Query database with aggregation
     try:
@@ -85,10 +85,10 @@ def get_stock_ohlc_from_db(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to fetch OHLC for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
+        raise HTTPException(status_code=500, detail="Database error") from e
 
 
 @router.get("/{symbol}/ohlc", response_model=OHLCResponse)
