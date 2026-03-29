@@ -89,20 +89,20 @@ async def get_crypto_klines(
         )
 
     # Merge cold and hot data
-    # Only use hot cache for data at or after the cold DB's latest timestamp.
-    # This prevents stale/incomplete hot cache from overriding complete DB history.
+    # Hot cache only supplements data AFTER the cold DB's latest timestamp.
+    # DB is the source of truth; hot cache just provides the real-time tail.
     if not hot_df.empty and not cold_df.empty:
         cold_max_ts = cold_df["timestamp"].max()
-        hot_df = hot_df[hot_df["timestamp"] >= cold_max_ts]
+        hot_df = hot_df[hot_df["timestamp"] > cold_max_ts]
 
     if not hot_df.empty:
         merged_df = pd.concat([cold_df, hot_df], ignore_index=True)
     else:
         merged_df = cold_df
 
-    # Deduplicate by timestamp (keep last, which prioritizes hot data for the overlap point)
+    # Deduplicate by timestamp (keep first = DB wins over any stale cache remnant)
     if not merged_df.empty:
-        merged_df = merged_df.drop_duplicates(subset=["timestamp"], keep="last")
+        merged_df = merged_df.drop_duplicates(subset=["timestamp"], keep="first")
         merged_df = merged_df.sort_values("timestamp")
 
     # Convert to list of dicts

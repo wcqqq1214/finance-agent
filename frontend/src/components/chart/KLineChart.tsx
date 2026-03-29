@@ -418,7 +418,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">
-            {selectedStock} - K-Line Chart
+            {selectedStock} K-Line Chart
           </h3>
           <span className="text-xs text-muted-foreground" title={timezoneInfo.name}>
             ({timezoneInfo.offset})
