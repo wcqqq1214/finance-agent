@@ -227,6 +227,29 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (time: number | string) => {
+          // For daily+ data, time is a string (YYYY-MM-DD)
+          if (typeof time === 'string') {
+            return time;
+          }
+          // For intraday data, time is Unix seconds
+          // Convert to local time (browser timezone, which should be UTC+8)
+          const date = new Date(time * 1000);
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+
+          // For time axis, show different formats based on zoom level
+          // If it's a new day, show date; otherwise just show time
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+
+          // Check if this is midnight or close to start of day
+          if (date.getHours() === 0 && date.getMinutes() === 0) {
+            return `${month}-${day}`;
+          }
+
+          return `${hours}:${minutes}`;
+        },
       },
       rightPriceScale: {
         borderColor: '#334155',
