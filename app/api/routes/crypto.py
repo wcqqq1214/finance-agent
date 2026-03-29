@@ -25,7 +25,9 @@ class CryptoQuote(BaseModel):
     name: str = Field(..., description="Crypto name (e.g., Bitcoin)")
     price: float = Field(..., description="Current price")
     change: float = Field(..., description="24h price change amount")
-    change_percent: float = Field(..., alias="changePercent", description="24h price change percentage")
+    change_percent: float = Field(
+        ..., alias="changePercent", description="24h price change percentage"
+    )
     volume24h: float = Field(..., description="24h trading volume")
     high24h: float = Field(..., description="24h highest price")
     low24h: float = Field(..., description="24h lowest price")

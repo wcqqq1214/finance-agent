@@ -292,7 +292,9 @@ def rate_limit(
                     identifier = f"{identifier}:{func.__name__}"
                 allowed = await acquire_rate_limit(exchange, identifier)
                 if not allowed:
-                    raise RateLimitExceededError(f"Rate limit exceeded for {exchange} ({identifier})")
+                    raise RateLimitExceededError(
+                        f"Rate limit exceeded for {exchange} ({identifier})"
+                    )
                 return await func(*args, **kwargs)
 
             return async_wrapper

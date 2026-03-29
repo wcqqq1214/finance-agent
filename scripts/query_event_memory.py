@@ -45,7 +45,9 @@ def query_events(ticker=None, sentiment=None, date_from=None, date_to=None, limi
 
     # Filter by date and collect matching events
     matching_events = []
-    for doc_id, doc, meta in zip(results["ids"], results["documents"], results["metadatas"], strict=False):
+    for doc_id, doc, meta in zip(
+        results["ids"], results["documents"], results["metadatas"], strict=False
+    ):
         # Filter by date if specified
         if date_from and meta["date"] < date_from:
             continue
