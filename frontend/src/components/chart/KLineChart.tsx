@@ -204,9 +204,10 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           if (typeof timestamp === 'string') {
             return timestamp;
           }
-          // For intraday data, timestamp has been shifted by +8 hours
-          // Subtract 8 hours to get real Beijing time for display
-          const realTimestamp = timestamp - 8 * 3600;
+          // For intraday data, timestamp has been shifted by browser timezone offset
+          // Subtract the offset to get real local time for display
+          const browserOffsetSeconds = -new Date().getTimezoneOffset() * 60;
+          const realTimestamp = timestamp - browserOffsetSeconds;
           const date = new Date(realTimestamp * 1000);
           const year = date.getFullYear();
           const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -233,8 +234,8 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           if (typeof time === 'string') {
             return time;
           }
-          // For intraday data, time has been shifted by +8 hours
-          // So UTC 00:00 now represents Beijing 00:00
+          // For intraday data, time has been shifted by browser timezone offset
+          // Display in user's local timezone
           const date = new Date(time * 1000);
 
           // Hide time-level ticks (only show date-level ticks)
@@ -287,8 +288,8 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     // For daily+ data, use YYYY-MM-DD format
     const isIntradayData = ['15M', '1H', '4H'].includes(timeRange);
 
-    // UTC+8 offset in seconds (8 hours)
-    const UTC8_OFFSET = 8 * 3600;
+    // Use browser's timezone offset (auto-adapt to user's local timezone)
+    const browserOffsetSeconds = -new Date().getTimezoneOffset() * 60;
 
     const formattedData: CandlestickData[] = [];
     const volumeData: { time: any; value: number; color: string }[] = [];
@@ -299,8 +300,8 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       let time: any;
       if (isIntradayData) {
         const timestamp = (d as any).timestamp || Math.floor(new Date(d.date).getTime() / 1000);
-        // Add 8 hours offset so chart engine treats UTC 00:00 as Beijing 00:00
-        time = timestamp + UTC8_OFFSET;
+        // Apply browser timezone offset for proper local time display
+        time = timestamp + browserOffsetSeconds;
       } else {
         time = d.date.split('T')[0];
       }
