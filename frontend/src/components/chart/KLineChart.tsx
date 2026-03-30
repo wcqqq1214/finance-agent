@@ -13,23 +13,16 @@ interface KLineChartProps {
   assetType: 'crypto' | 'stocks';
 }
 
-// Parse shadcn CSS variables to standard HSL/HSLA strings for lightweight-charts
-const getChartColor = (cssVar: string, alpha: number = 1) => {
-  if (typeof document === 'undefined') return '#000000'; // SSR defense
-
-  // Get computed value (e.g., "215.4 16.3% 46.9%")
+// Resolve CSS variables to standard HSL/HSLA strings for lightweight-charts
+const getChartColor = (cssVar: string, fallbackHex: string) => {
+  if (typeof document === 'undefined') return fallbackHex;
   const val = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
-  if (!val) return '#000000';
 
-  // Parse and format as standard HSL/HSLA
-  const parts = val.split(/\s+/).filter(Boolean);
-  if (parts.length === 3) {
-    return alpha < 1
-      ? `hsla(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`
-      : `hsl(${parts[0]}, ${parts[1]}, ${parts[2]})`;
-  }
+  // If it's a standard hsl/hsla format, use it
+  if (val.startsWith('hsl')) return val;
 
-  return val; // fallback
+  // Otherwise fall back to hex (handles lab/oklch or missing variables)
+  return fallbackHex;
 };
 
 function formatVolume(vol: number): string {
@@ -212,13 +205,13 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       chartRef.current = null;
     }
 
-    // Resolve CSS variables to actual colors
-    const textColor = getChartColor('--muted-foreground');
-    const borderColor = getChartColor('--border');
-    const upColor = getChartColor('--chart-up');
-    const downColor = getChartColor('--chart-down');
-    const volumeUpColor = getChartColor('--chart-up', 0.6);
-    const volumeDownColor = getChartColor('--chart-down', 0.6);
+    // Resolve colors using dual-track variables with fallbacks
+    const upColor = getChartColor('--chart-up-js', '#22c55e');
+    const downColor = getChartColor('--chart-down-js', '#ef4444');
+    const volumeUpColor = getChartColor('--chart-up-js-alpha', 'rgba(34,197,94,0.6)');
+    const volumeDownColor = getChartColor('--chart-down-js-alpha', 'rgba(239,68,68,0.6)');
+    const textColor = getChartColor('--muted-foreground-js', '#64748b');
+    const borderColor = getChartColor('--border-js', '#334155');
 
     // Create chart
     const chart = createChart(chartContainerRef.current, {
