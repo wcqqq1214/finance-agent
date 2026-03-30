@@ -123,8 +123,8 @@ This must run before any other step. The `Accordion` component does not exist in
    - Export `mockReports: AnalysisReport[]` array with 3-5 records
 
 2. **`/frontend/src/lib/strip-markdown.ts`** (new)
-   - Export `stripMarkdown(text: string): string` utility
-   - Strips `#`, `*`, `_`, `[]()`, `` ` ``, `>` and other common Markdown syntax via regex
+   - Export `markdownSummary(text: string, maxLength?: number): string` utility
+   - Uses `remove-markdown` npm package (zero-dependency, handles nested blockquotes, tables, code blocks) instead of hand-rolled regexes
    - Used by `ReportCard` to produce clean plain-text summary from `reports.cio`
 
 3. **`/frontend/src/components/reports/ReportCard.tsx`** (new)
@@ -133,7 +133,7 @@ This must run before any other step. The `Accordion` component does not exist in
    - Contains Tabs logic for the 4 report types
    - Derives CIO summary from `reports.cio` at render time
 
-3. **`/frontend/src/app/reports/page.tsx`** (modify)
+4. **`/frontend/src/app/reports/page.tsx`** (modify)
    - Replace skeleton with real layout
    - Import `mockReports` from mock-data
    - Render single `Accordion` wrapping `ReportCard` components

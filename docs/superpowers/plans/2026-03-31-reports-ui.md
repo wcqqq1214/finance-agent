@@ -52,62 +52,42 @@ cd /home/wcqqq21/q-agents && git commit -m "feat(ui): install shadcn accordion c
 
 ---
 
-## Task 2: Create `stripMarkdown` utility
+## Task 2: Install `remove-markdown` and create summary utility
 
 **Files:**
 - Create: `frontend/src/lib/strip-markdown.ts`
 
-- [ ] **Step 1: Create the utility file**
+- [ ] **Step 1: Install `remove-markdown`**
+
+```bash
+cd /home/wcqqq21/q-agents/frontend && pnpm add remove-markdown
+```
+
+Expected: `remove-markdown` added to `package.json` dependencies.
+
+- [ ] **Step 2: Create the utility file**
 
 ```typescript
 // frontend/src/lib/strip-markdown.ts
-
-/**
- * Strips common Markdown syntax from a string and returns plain text.
- * Used to produce clean summaries from LLM-generated Markdown reports.
- */
-export function stripMarkdown(text: string): string {
-  return text
-    // Remove headings: # ## ###
-    .replace(/^#{1,6}\s+/gm, '')
-    // Remove bold/italic: **text**, *text*, __text__, _text_
-    .replace(/(\*{1,2}|_{1,2})(.+?)\1/g, '$2')
-    // Remove inline code: `code`
-    .replace(/`(.+?)`/g, '$1')
-    // Remove links: [text](url)
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // Remove images: ![alt](url)
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-    // Remove blockquotes: > text
-    .replace(/^>\s+/gm, '')
-    // Remove horizontal rules: --- or ***
-    .replace(/^[-*]{3,}\s*$/gm, '')
-    // Remove list markers: - item, * item, 1. item
-    .replace(/^[\s]*[-*+]\s+/gm, '')
-    .replace(/^[\s]*\d+\.\s+/gm, '')
-    // Collapse multiple newlines to single space
-    .replace(/\n+/g, ' ')
-    // Collapse multiple spaces
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+import removeMd from 'remove-markdown';
 
 /**
  * Returns a plain-text summary truncated to maxLength characters.
- * Strips Markdown before truncating to avoid broken syntax fragments.
+ * Uses remove-markdown to safely handle nested blockquotes, tables,
+ * and code blocks that hand-rolled regexes commonly miss.
  */
 export function markdownSummary(text: string, maxLength = 200): string {
-  const plain = stripMarkdown(text);
+  const plain = removeMd(text).replace(/\s+/g, ' ').trim();
   if (plain.length <= maxLength) return plain;
   return plain.slice(0, maxLength).trimEnd() + '...';
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-cd /home/wcqqq21/q-agents && git add frontend/src/lib/strip-markdown.ts
-git commit -m "feat(reports): add stripMarkdown utility"
+cd /home/wcqqq21/q-agents && git add frontend/package.json frontend/pnpm-lock.yaml frontend/src/lib/strip-markdown.ts
+git commit -m "feat(reports): add markdownSummary utility via remove-markdown"
 ```
 
 ---
