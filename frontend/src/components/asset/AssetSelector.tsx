@@ -8,6 +8,7 @@ import { StockCard } from '../stock/StockCard';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import type { StockInfo, CryptoQuote } from '@/lib/types';
 
 const SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA'];
@@ -116,8 +117,9 @@ export function AssetSelector({
           className="h-6 w-6"
           onClick={() => fetchQuotes(true)}
           disabled={refreshing}
+          aria-label="Refresh quotes"
         >
-          <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={cn('h-3 w-3', refreshing && 'animate-spin')} />
         </Button>
       </div>
 
