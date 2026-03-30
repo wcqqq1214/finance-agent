@@ -340,7 +340,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         const change = ohlc.close - ohlc.open;
         const changePct = (change / ohlc.open) * 100;
         const isUp = change >= 0;
-        const color = isUp ? '#22c55e' : '#ef4444';
+        const color = isUp ? 'hsl(var(--chart-up))' : 'hsl(var(--chart-down))';
         const sign = isUp ? '+' : '';
 
         legend.style.display = 'block';
@@ -424,7 +424,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         chartRef.current = null;
       }
     };
-  }, [ohlcData]);
+  }, [ohlcData, resolvedTheme]);
 
   // Render
   if (!selectedStock) {
