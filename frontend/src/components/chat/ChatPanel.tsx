@@ -112,6 +112,7 @@ export function ChatPanel({ selectedStock }: ChatPanelProps) {
           type="submit"
           size="icon"
           disabled={!selectedStock || !query.trim() || isAnalyzing}
+          aria-label="Send analysis query"
         >
           <Send className="h-4 w-4" />
         </Button>
