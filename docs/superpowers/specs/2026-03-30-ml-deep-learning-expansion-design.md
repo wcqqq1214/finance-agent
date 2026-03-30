@@ -440,3 +440,224 @@ scikit-learn>=1.3.0  # 已有，用于Scaler
 - lightgbm（对比baseline）
 - app/ml/features.py（特征工程）
 
+
+## 关键技术修正与优化
+
+### 修正1：验证集切分策略（防止指标虚高）
+
+**问题**：直接使用test_idx计算val_loss会导致测试集参与超参数选择（Epoch数），造成指标虚高
+
+**解决方案**：从train_idx末尾切分15%作为验证集
+
+```python
+# 在每个fold内部再次切分
+train_size = int(len(train_idx) * 0.85)
+actual_train_idx = train_idx[:train_size]
+val_idx = train_idx[train_size:]
+
+# 训练集用于模型训练
+X_train, y_train = prepare_data(actual_train_idx)
+
+# 验证集用于早停
+X_val, y_val = prepare_data(val_idx, with_lookback=True)
+
+# 测试集仅用于最终评估（不参与训练过程）
+X_test, y_test = prepare_data(test_idx, with_lookback=True)
+```
+
+**注意**：
+- 验证集也需要lookback机制，从actual_train_idx末尾借seq_len-1天
+- 这样test_idx完全不参与训练和早停，保证评估指标的纯净性
+- 代价是训练集减少15%，但换来更可信的泛化能力评估
+
+
+### 修正2：学习率调度器
+
+**问题**：固定学习率在训练后期可能导致Loss震荡，难以收敛到最优
+
+**解决方案**：引入ReduceLROnPlateau动态调整学习率
+
+```python
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=5e-4,
+    weight_decay=1e-4,
+)
+
+# 学习率调度器：验证集Loss不下降时自动衰减
+scheduler = ReduceLROnPlateau(
+    optimizer,
+    mode='min',
+    factor=0.5,        # 衰减因子：lr = lr * 0.5
+    patience=5,        # 5个epoch不下降则衰减
+    verbose=True,
+)
+
+# 在验证阶段调用
+for epoch in range(max_epochs):
+    train_loss = train_one_epoch()
+    val_loss = validate()
+    
+    scheduler.step(val_loss)  # 根据验证集Loss调整学习率
+    
+    # 早停检查...
+```
+
+**参数说明**：
+- `factor=0.5`：每次衰减到原来的50%
+- `patience=5`：比早停的patience(10)更激进，先尝试降低学习率
+- 配合早停使用：先降lr尝试突破平台期，实在不行再早停
+
+
+### 修正3：梯度裁剪（防止梯度爆炸）
+
+**问题**：金融新闻数据的突发极值可能导致RNN梯度爆炸
+
+**解决方案**：在反向传播后添加梯度裁剪
+
+```python
+for X_batch, y_batch in train_loader:
+    optimizer.zero_grad()
+    logits = model(X_batch)
+    loss = criterion(logits, y_batch)
+    loss.backward()
+    
+    # 梯度裁剪：限制梯度范数不超过1.0
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    
+    optimizer.step()
+```
+
+**参数说明**：
+- `max_norm=1.0`：保守设置，适合金融数据的高噪声环境
+- 如果训练过程中出现NaN loss，可以降低到0.5
+
+### 修正4：随机种子固定（保证可复现性）
+
+**问题**：深度学习对初始权重极其敏感，无法对比不同模型
+
+**解决方案**：在每个fold开始前固定随机种子
+
+```python
+import torch
+import numpy as np
+import random
+
+def set_seed(seed: int = 42):
+    """固定所有随机种子，保证实验可复现"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        # 额外设置：牺牲少量性能换取完全确定性
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+# 在TimeSeriesSplit的每个fold开始前调用
+tss = TimeSeriesSplit(n_splits=5)
+for fold_idx, (train_idx, test_idx) in enumerate(tss.split(X)):
+    set_seed(42)  # 关键：每个fold使用相同种子，保证初始权重一致
+    
+    # 准备数据...
+    # 创建模型...
+    model = create_model(...)  # 此时模型获得确定的初始权重
+```
+
+**调用位置说明**：
+- **在fold循环内部调用**：每个fold的模型初始权重完全一致，适合严格的消融实验（如对比GRU vs LSTM）
+- **在函数开头调用一次**：整体可复现，但不同fold的初始权重会略有差异（随机数生成器在推进）
+- **推荐**：采用fold级别的种子设置，排除初始权重对实验结果的影响
+
+**性能影响**：
+- `cudnn.deterministic=True`会降低5-10%的训练速度
+- 但换来跨设备、跨运行的100%可复现性，在量化研究中完全值得
+
+
+### 修正5：序列有效性检查（处理缺失数据）
+
+**问题**：新上市股票或停牌导致的数据缺失可能产生包含大量NaN的序列
+
+**解决方案**：在TimeSeriesDataset中增加序列有效性检查
+
+```python
+class TimeSeriesDataset(Dataset):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        X_seq = self.X[idx : idx + self.seq_len]
+        y_label = self.y[...]
+        
+        # 检查序列有效性
+        nan_ratio = np.isnan(X_seq).sum() / X_seq.size
+        if nan_ratio > 0.1:  # 超过10%为NaN则跳过
+            # 返回下一个有效样本或抛出警告
+            logger.warning(f"Sample {idx} has {nan_ratio:.1%} NaN values")
+        
+        return (
+            torch.FloatTensor(X_seq),
+            torch.FloatTensor([y_label])
+        )
+```
+
+**缺失值处理策略**（在dl_config.py中配置）：
+- 前向填充（ffill）：适合价格类特征
+- 零填充：适合新闻计数类特征
+- 删除样本：NaN占比超过阈值时直接跳过
+
+### 修正6：特征维度扩展性（为STGNN做准备）
+
+**问题**：第三阶段引入七姐妹横截面拼接后，特征维度可能膨胀到几百维
+
+**解决方案**：hidden_size与input_size建立动态比例
+
+```python
+@dataclass
+class DLConfig:
+    hidden_size: int = 32  # 默认值
+    hidden_size_ratio: float = 0.8  # hidden_size = input_size * ratio
+    
+    def get_hidden_size(self, input_size: int) -> int:
+        """根据输入维度动态计算隐藏层大小"""
+        if self.hidden_size_ratio is not None:
+            return max(16, int(input_size * self.hidden_size_ratio))
+        return self.hidden_size
+```
+
+**使用场景**：
+- 单票特征（input_size≈35）：hidden_size=32（固定）
+- 七姐妹拼接（input_size≈200）：hidden_size=160（动态）
+- 避免信息瓶颈，同时控制参数量增长
+
+### 修正7：样本权重（关注高波动日）
+
+**问题**：当前加权BCE仅处理类别不平衡，但金融预测的痛点在于区分"大涨/大跌"与"微涨/微跌"
+
+**解决方案**：引入基于收益率绝对值的样本权重
+
+```python
+# 计算样本权重：高波动日权重更大
+returns = df['ret_1d'].abs()  # 收益率绝对值
+sample_weights = 1 + returns / returns.mean()  # 归一化权重
+
+# 在DataLoader中使用WeightedRandomSampler
+from torch.utils.data import WeightedRandomSampler
+
+sampler = WeightedRandomSampler(
+    weights=sample_weights,
+    num_samples=len(dataset),
+    replacement=True,
+)
+
+train_loader = DataLoader(
+    dataset,
+    batch_size=32,
+    sampler=sampler,  # 替代shuffle=True
+)
+```
+
+**效果**：
+- 模型更关注财报日、重大新闻日等高波动场景
+- 提升对极端行情的预测能力
+- 可选功能，第一阶段可不实现
+
