@@ -9,6 +9,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+try:
+    import torch
+except ImportError:
+    torch = None
+
 
 @dataclass
 class DLConfig:
@@ -19,30 +24,48 @@ class DLConfig:
     allowing full customization.
 
     Attributes:
-        sequence_length: Number of past time steps to use as input (lookback window).
-            Default: 20 trading days.
-        batch_size: Number of samples per batch during training. Default: 32.
-        epochs: Number of training epochs. Default: 50.
-        learning_rate: Learning rate for the optimizer. Default: 0.001.
-        dropout_rate: Dropout probability for regularization. Default: 0.2.
-        hidden_dim: Number of hidden units in RNN layers. Default: 64.
-        num_layers: Number of stacked RNN layers. Default: 2.
+        seq_len: Number of past time steps to use as input (lookback window).
+            Default: 15 trading days.
+        scaler_type: Type of scaler for feature normalization ("robust" or "standard").
+            Default: "robust".
         model_type: Type of RNN model ("gru" or "lstm"). Default: "gru".
-        seed: Random seed for reproducibility. Default: 42.
+        hidden_size: Number of hidden units in RNN layers. Default: 32.
+        num_layers: Number of stacked RNN layers. Default: 1.
+        dropout: Dropout probability for regularization. Default: 0.4.
+        batch_size: Number of samples per batch during training. Default: 32.
+        learning_rate: Learning rate for the optimizer. Default: 5e-4.
+        weight_decay: L2 regularization coefficient. Default: 1e-4.
+        max_epochs: Maximum number of training epochs. Default: 100.
+        early_stopping_patience: Epochs to wait before stopping if no improvement.
+            Default: 10.
+        n_splits: Number of cross-validation splits. Default: 5.
+        device: Device for training ("cuda" or "cpu"). Auto-detected by default.
     """
 
-    sequence_length: int = 20
-    batch_size: int = 32
-    epochs: int = 50
-    learning_rate: float = 0.001
-    dropout_rate: float = 0.2
-    hidden_dim: int = 64
-    num_layers: int = 2
+    seq_len: int = 15
+    scaler_type: str = "robust"
     model_type: str = "gru"
-    seed: int = 42
+    hidden_size: int = 32
+    num_layers: int = 1
+    dropout: float = 0.4
+    batch_size: int = 32
+    learning_rate: float = 5e-4
+    weight_decay: float = 1e-4
+    max_epochs: int = 100
+    early_stopping_patience: int = 10
+    n_splits: int = 5
+    device: str = None
+
+    def __post_init__(self):
+        """Set device to cuda if available, else cpu."""
+        if self.device is None:
+            if torch is not None and torch.cuda.is_available():
+                self.device = "cuda"
+            else:
+                self.device = "cpu"
 
 
-# Feature columns that require scaling (StandardScaler)
+# Feature columns that require scaling (RobustScaler)
 # These are continuous features with varying ranges that benefit from normalization
 # CRITICAL: rsi_14 must be included to prevent gradient imbalance during training
 COLUMNS_TO_SCALE = [
@@ -62,40 +85,36 @@ COLUMNS_TO_SCALE = [
     "ma5_vs_ma20",
     # RSI (0-100 scale, but needs normalization for neural networks)
     "rsi_14",
-    # News sentiment features (typically -1 to 1)
-    "sentiment_score",
-    "relevance_ratio",
-    "positive_ratio",
-    "negative_ratio",
-    # Rolling news features
-    "sentiment_score_3d",
-    "sentiment_score_5d",
-    "sentiment_score_10d",
-    "positive_ratio_3d",
-    "positive_ratio_5d",
-    "positive_ratio_10d",
-    "negative_ratio_3d",
-    "negative_ratio_5d",
-    "negative_ratio_10d",
-    # Sentiment momentum
-    "sentiment_momentum_3d",
-]
-
-# Feature columns that pass through without scaling
-# These are categorical or already normalized features
-PASSTHROUGH_COLUMNS = [
-    # Categorical: day of week (0-4 for Mon-Fri)
-    "day_of_week",
-    # Count features (already in reasonable range)
+    # Count features (need scaling due to varying ranges)
     "n_articles",
     "n_relevant",
     "n_positive",
     "n_negative",
-    "n_neutral",
-    "has_news",
+    # Rolling news count features
     "news_count_3d",
     "news_count_5d",
     "news_count_10d",
+]
+
+# Feature columns that pass through without scaling
+# These are categorical or already normalized features (typically -1 to 1 or 0 to 1)
+PASSTHROUGH_COLUMNS = [
+    # Categorical: day of week (0-4 for Mon-Fri)
+    "day_of_week",
+    # Categorical: has news flag
+    "has_news",
+    "n_neutral",
+    # News sentiment features (already normalized to -1 to 1 range)
+    "sentiment_score",
+    "relevance_ratio",
+    "positive_ratio",
+    "negative_ratio",
+    # Rolling news sentiment features (already normalized)
+    "sentiment_score_3d",
+    "sentiment_score_5d",
+    "sentiment_score_10d",
+    # Sentiment momentum (already normalized)
+    "sentiment_momentum_3d",
 ]
 
 
@@ -105,7 +124,7 @@ def set_seed(seed: int) -> None:
     Sets the random seed for:
     - Python's built-in random module
     - NumPy's random number generator
-    - PyTorch (if available)
+    - PyTorch (if available) with cudnn deterministic mode
     - TensorFlow (if available)
 
     This ensures reproducible results across different runs with the same seed.
@@ -131,6 +150,9 @@ def set_seed(seed: int) -> None:
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
+        # Ensure deterministic behavior for reproducibility
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     except ImportError:
         pass
 

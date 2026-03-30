@@ -17,44 +17,61 @@ class TestDLConfig:
     def test_dlconfig_creation_with_defaults(self):
         """Test DLConfig can be created with default values."""
         config = DLConfig()
-        assert config.sequence_length == 20
+        assert config.seq_len == 15
         assert config.batch_size == 32
-        assert config.epochs == 50
-        assert config.learning_rate == 0.001
-        assert config.dropout_rate == 0.2
-        assert config.hidden_dim == 64
-        assert config.num_layers == 2
+        assert config.max_epochs == 100
+        assert config.learning_rate == 5e-4
+        assert config.dropout == 0.4
+        assert config.hidden_size == 32
+        assert config.num_layers == 1
         assert config.model_type == "gru"
-        assert config.seed == 42
+        assert config.scaler_type == "robust"
+        assert config.weight_decay == 1e-4
+        assert config.early_stopping_patience == 10
+        assert config.n_splits == 5
+        assert config.device in ("cuda", "cpu")
 
     def test_dlconfig_creation_with_custom_values(self):
         """Test DLConfig can be created with custom values."""
         config = DLConfig(
-            sequence_length=30,
+            seq_len=30,
             batch_size=64,
-            epochs=100,
-            learning_rate=0.0005,
-            dropout_rate=0.3,
-            hidden_dim=128,
-            num_layers=3,
+            max_epochs=200,
+            learning_rate=1e-3,
+            dropout=0.3,
+            hidden_size=64,
+            num_layers=2,
             model_type="lstm",
-            seed=123,
+            scaler_type="standard",
+            weight_decay=5e-4,
+            early_stopping_patience=15,
+            n_splits=10,
+            device="cpu",
         )
-        assert config.sequence_length == 30
+        assert config.seq_len == 30
         assert config.batch_size == 64
-        assert config.epochs == 100
-        assert config.learning_rate == 0.0005
-        assert config.dropout_rate == 0.3
-        assert config.hidden_dim == 128
-        assert config.num_layers == 3
+        assert config.max_epochs == 200
+        assert config.learning_rate == 1e-3
+        assert config.dropout == 0.3
+        assert config.hidden_size == 64
+        assert config.num_layers == 2
         assert config.model_type == "lstm"
-        assert config.seed == 123
+        assert config.scaler_type == "standard"
+        assert config.weight_decay == 5e-4
+        assert config.early_stopping_patience == 15
+        assert config.n_splits == 10
+        assert config.device == "cpu"
 
     def test_dlconfig_is_dataclass(self):
         """Test DLConfig is a proper dataclass."""
         config = DLConfig()
         # Should be able to convert to dict-like representation
         assert hasattr(config, "__dataclass_fields__")
+
+    def test_dlconfig_device_auto_detection(self):
+        """Test device is auto-detected when not specified."""
+        config = DLConfig()
+        assert config.device in ("cuda", "cpu")
 
 
 class TestFeatureGrouping:
@@ -88,6 +105,23 @@ class TestFeatureGrouping:
         volatility_features = [col for col in COLUMNS_TO_SCALE if "volatility_" in col]
         assert len(volatility_features) > 0
 
+    def test_columns_to_scale_contains_count_features(self):
+        """Test COLUMNS_TO_SCALE includes count features (n_articles, etc)."""
+        from app.ml.dl_config import COLUMNS_TO_SCALE
+
+        count_features = [col for col in COLUMNS_TO_SCALE if col.startswith("n_")]
+        assert len(count_features) > 0
+        assert "n_articles" in COLUMNS_TO_SCALE
+        assert "n_relevant" in COLUMNS_TO_SCALE
+
+    def test_columns_to_scale_contains_news_count_rolling(self):
+        """Test COLUMNS_TO_SCALE includes rolling news count features."""
+        from app.ml.dl_config import COLUMNS_TO_SCALE
+
+        assert "news_count_3d" in COLUMNS_TO_SCALE
+        assert "news_count_5d" in COLUMNS_TO_SCALE
+        assert "news_count_10d" in COLUMNS_TO_SCALE
+
     def test_passthrough_columns_exists(self):
         """Test PASSTHROUGH_COLUMNS constant is defined."""
         from app.ml.dl_config import PASSTHROUGH_COLUMNS
@@ -100,6 +134,29 @@ class TestFeatureGrouping:
 
         # day_of_week is a categorical feature that should pass through
         assert "day_of_week" in PASSTHROUGH_COLUMNS
+
+    def test_passthrough_columns_contains_sentiment_scores(self):
+        """Test PASSTHROUGH_COLUMNS includes sentiment score features."""
+        from app.ml.dl_config import PASSTHROUGH_COLUMNS
+
+        assert "sentiment_score" in PASSTHROUGH_COLUMNS
+        assert "sentiment_score_3d" in PASSTHROUGH_COLUMNS
+        assert "sentiment_score_5d" in PASSTHROUGH_COLUMNS
+        assert "sentiment_score_10d" in PASSTHROUGH_COLUMNS
+
+    def test_passthrough_columns_contains_sentiment_ratios(self):
+        """Test PASSTHROUGH_COLUMNS includes sentiment ratio features."""
+        from app.ml.dl_config import PASSTHROUGH_COLUMNS
+
+        assert "relevance_ratio" in PASSTHROUGH_COLUMNS
+        assert "positive_ratio" in PASSTHROUGH_COLUMNS
+        assert "negative_ratio" in PASSTHROUGH_COLUMNS
+
+    def test_passthrough_columns_contains_sentiment_momentum(self):
+        """Test PASSTHROUGH_COLUMNS includes sentiment momentum."""
+        from app.ml.dl_config import PASSTHROUGH_COLUMNS
+
+        assert "sentiment_momentum_3d" in PASSTHROUGH_COLUMNS
 
     def test_no_overlap_between_scale_and_passthrough(self):
         """Test COLUMNS_TO_SCALE and PASSTHROUGH_COLUMNS don't overlap."""
@@ -172,3 +229,4 @@ class TestSetSeed:
         seq2 = [np.random.randn() for _ in range(5)]
 
         assert seq1 == seq2
+
