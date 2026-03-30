@@ -145,3 +145,12 @@
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  .text-chart-up {
+    color: hsl(var(--chart-up));
+  }
+  .text-chart-down {
+    color: hsl(var(--chart-down));
+  }
+}
