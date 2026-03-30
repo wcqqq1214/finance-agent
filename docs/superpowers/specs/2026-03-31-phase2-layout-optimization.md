@@ -91,7 +91,7 @@
 ```tsx
 // 问题 1: 硬编码的图表高度
 const chart = createChart(chartContainerRef.current, {
-  width: chartContainerRef.current.clientWidth,
+  width: chartContainerRef.current.clientWidth || 800,
   height: 400,  // ❌ 固定 400px
   // ...
 });
@@ -159,6 +159,33 @@ window.addEventListener('resize', handleResize);
    ```
 
 **ResizeObserver 优势：**
+
+#### 2.2.1 零高度防御（Edge Case）
+
+**问题：** 在 React useEffect 首次触发时，由于 Flex 嵌套或浏览器渲染延迟，`clientHeight` 可能短暂为 0，导致图表初始化失败。
+
+**解决方案：** 添加 fallback 兜底值
+
+```tsx
+const chart = createChart(chartContainerRef.current, {
+  width: chartContainerRef.current.clientWidth || 800,   // 兜底 800px
+  height: chartContainerRef.current.clientHeight || 400, // 兜底 400px
+  localization: {
+    // ...
+  },
+  // ...
+});
+```
+
+**工作原理：**
+- 如果容器尺寸为 0，使用兜底值防止初始化崩溃
+- ResizeObserver 的首次触发会立即将尺寸纠正为真实值
+- 用户不会感知到这个短暂的兜底状态
+
+**为什么选择 800x400：**
+- 800px 宽度是常见的最小桌面宽度
+- 400px 高度与原有的硬编码值保持一致
+- 这些值仅作为极端情况的安全网，正常情况下不会被使用
 - 精准捕获容器级别的尺寸变化（而非窗口级别）
 - 支持侧边栏展开/折叠等局部布局变化
 - 性能更好（只监听特定元素，而非整个窗口）
@@ -223,8 +250,8 @@ export default function Home() {
 ```tsx
 // 1. 修改图表初始化（约在 Line 217-219）
 const chart = createChart(chartContainerRef.current, {
-  width: chartContainerRef.current.clientWidth,
-  height: chartContainerRef.current.clientHeight,  // 改为动态高度
+  width: chartContainerRef.current.clientWidth || 800,
+  height: chartContainerRef.current.clientHeight || 400,  // 动态高度 + 兜底值
   localization: {
     // ...
   },
