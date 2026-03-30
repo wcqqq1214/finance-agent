@@ -20,7 +20,7 @@ export function ThemeToggle() {
     return (
       <button
         className="inline-flex items-center justify-center rounded-md p-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-        aria-label="切换主题"
+        aria-label="Toggle theme"
       >
         <Sun className="h-5 w-5" />
       </button>
@@ -33,7 +33,7 @@ export function ThemeToggle() {
     <button
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
       className="inline-flex items-center justify-center rounded-md p-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-      aria-label={isDark ? '切换到浅色模式' : '切换到暗黑模式'}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {isDark ? (
         <Sun className="h-5 w-5 transition-transform hover:rotate-12" />
