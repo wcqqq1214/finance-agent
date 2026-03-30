@@ -221,14 +221,14 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       },
       layout: {
         background: { color: 'transparent' },
-        textColor: '#d1d5db',
+        textColor: 'hsl(var(--muted-foreground))',
       },
       grid: {
-        vertLines: { color: '#334155' },
-        horzLines: { color: '#334155' },
+        vertLines: { color: 'hsl(var(--border))' },
+        horzLines: { color: 'hsl(var(--border))' },
       },
       timeScale: {
-        borderColor: '#334155',
+        borderColor: 'hsl(var(--border))',
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number | string, tickMarkType: TickMarkType) => {
@@ -253,7 +253,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         },
       },
       rightPriceScale: {
-        borderColor: '#334155',
+        borderColor: 'hsl(var(--border))',
       },
     });
 
