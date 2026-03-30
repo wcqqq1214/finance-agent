@@ -8,6 +8,7 @@ import type {
   SettingsRequest,
   StockQuotesResponse,
   OHLCResponse,
+  OHLCRecord,
   DataStatusResponse,
   CryptoQuotesResponse,
 } from './types';
@@ -136,13 +137,13 @@ export const api = {
     const query = params.toString();
 
     // Use klines endpoint which merges hot cache and cold database
-    return fetchAPI<any>(
+    return fetchAPI<OHLCRecord[]>(
       `/api/crypto/klines?${query}`
     ).then(data => {
       // Transform klines response to OHLC format
       return {
         symbol: symbol,
-        data: data.map((item: any) => ({
+        data: data.map((item) => ({
           date: item.date,
           open: item.open,
           high: item.high,

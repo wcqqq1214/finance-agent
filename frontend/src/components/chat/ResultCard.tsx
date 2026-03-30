@@ -8,7 +8,7 @@ interface ResultCardProps {
   symbol: string;
   query: string;
   progress: string[];
-  result: Record<string, unknown> | null;
+  result: { final_decision?: string } | null;
   isAnalyzing: boolean;
 }
 
@@ -33,14 +33,14 @@ export function ResultCard({ symbol, query, progress, result, isAnalyzing }: Res
             {progress.map((msg, i) => (
               <p key={i} className="text-xs text-muted-foreground flex items-start gap-1">
                 <span className="text-primary mt-0.5">•</span>
-                {msg}
+                <span>{msg}</span>
               </p>
             ))}
           </div>
         )}
 
         {/* Final Decision - Markdown formatted */}
-        {result && result.final_decision && (
+        {result?.final_decision && (
           <div className="pt-1">
             <MarkdownRenderer content={String(result.final_decision)} />
           </div>

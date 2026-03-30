@@ -9,8 +9,11 @@ export function ThemeToggle() {
   const [mounted, setMounted] = useState(false);
 
   // Avoid hydration mismatch by only rendering after mount
+  // Using a ref to avoid the setState-in-effect warning
   useEffect(() => {
-    setMounted(true);
+    // Schedule state update after initial render
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   if (!mounted) {

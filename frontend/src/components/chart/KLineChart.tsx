@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, IChartApi, CandlestickData, ISeriesApi, CandlestickSeries, HistogramSeries, TickMarkType } from 'lightweight-charts';
+import { createChart, IChartApi, CandlestickData, CandlestickSeries, HistogramSeries, TickMarkType, Time } from 'lightweight-charts';
 import { TimeRangeSelector } from './TimeRangeSelector';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -292,18 +292,18 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     const browserOffsetSeconds = -new Date().getTimezoneOffset() * 60;
 
     const formattedData: CandlestickData[] = [];
-    const volumeData: { time: any; value: number; color: string }[] = [];
+    const volumeData: { time: Time; value: number; color: string }[] = [];
 
     for (const d of ohlcData) {
       // Use backend's timestamp field if available (for intraday data)
       // Otherwise parse date string for daily+ data
-      let time: any;
+      let time: Time;
       if (isIntradayData) {
-        const timestamp = (d as any).timestamp || Math.floor(new Date(d.date).getTime() / 1000);
+        const timestamp = (d as OHLCRecord & { timestamp?: number }).timestamp || Math.floor(new Date(d.date).getTime() / 1000);
         // Apply browser timezone offset for proper local time display
-        time = timestamp + browserOffsetSeconds;
+        time = (timestamp + browserOffsetSeconds) as Time;
       } else {
-        time = d.date.split('T')[0];
+        time = d.date.split('T')[0] as Time;
       }
 
       formattedData.push({ time, open: d.open, high: d.high, low: d.low, close: d.close });
@@ -400,8 +400,8 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
 
       const fromIndex = Math.max(0, lastIndex - visibleBars + 1);
       chart.timeScale().setVisibleRange({
-        from: formattedData[fromIndex].time as any,
-        to: formattedData[lastIndex].time as any,
+        from: formattedData[fromIndex].time as Time,
+        to: formattedData[lastIndex].time as Time,
       });
     }
 
