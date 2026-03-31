@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function SystemPage() {
   return (
@@ -18,7 +19,7 @@ export default function SystemPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>FastAPI Backend</CardTitle>
-              <Badge variant="outline">Checking...</Badge>
+              <Skeleton className="h-5 w-20" />
             </div>
             <CardDescription>
               Main API server status
@@ -32,7 +33,7 @@ export default function SystemPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
-                <span>Pending check</span>
+                <Skeleton className="h-4 w-24" />
               </div>
             </div>
           </CardContent>
@@ -42,7 +43,7 @@ export default function SystemPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Market Data MCP</CardTitle>
-              <Badge variant="outline">Checking...</Badge>
+              <Skeleton className="h-5 w-20" />
             </div>
             <CardDescription>
               Market data service
@@ -56,7 +57,7 @@ export default function SystemPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
-                <span>Pending check</span>
+                <Skeleton className="h-4 w-24" />
               </div>
             </div>
           </CardContent>
@@ -66,7 +67,7 @@ export default function SystemPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>News Search MCP</CardTitle>
-              <Badge variant="outline">Checking...</Badge>
+              <Skeleton className="h-5 w-20" />
             </div>
             <CardDescription>
               News search service
@@ -80,7 +81,7 @@ export default function SystemPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
-                <span>Pending check</span>
+                <Skeleton className="h-4 w-24" />
               </div>
             </div>
           </CardContent>
