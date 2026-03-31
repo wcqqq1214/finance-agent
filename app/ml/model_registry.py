@@ -7,8 +7,10 @@ Provides unified interface for training and predicting with multiple models
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Literal
+from datetime import datetime
+from typing import Any, Dict, List, Literal
 
+import numpy as np
 import pandas as pd
 import torch
 from sklearn.preprocessing import RobustScaler
@@ -21,6 +23,36 @@ from app.ml.model_trainer import predict_proba_latest, train_lightgbm
 logger = logging.getLogger(__name__)
 
 ModelType = Literal["lightgbm", "gru", "lstm"]
+
+
+def _extract_parameters(model: Any, model_type: str, dl_config: DLConfig | None = None) -> Dict[str, Any]:
+    """Extract parameters from heterogeneous models.
+
+    Args:
+        model: Trained model (LGBMClassifier or PyTorch nn.Module)
+        model_type: "lightgbm", "gru", or "lstm"
+        dl_config: DLConfig instance for PyTorch models
+
+    Returns:
+        Dictionary of model parameters
+    """
+    if model_type == "lightgbm":
+        return model.get_params()
+    elif model_type in ["gru", "lstm"]:
+        if dl_config is None:
+            raise ValueError(f"DLConfig required for {model_type}")
+        return {
+            "hidden_size": dl_config.hidden_size,
+            "num_layers": dl_config.num_layers,
+            "dropout": dl_config.dropout,
+            "seq_len": dl_config.seq_len,
+            "learning_rate": dl_config.learning_rate,
+            "weight_decay": dl_config.weight_decay,
+            "batch_size": dl_config.batch_size,
+            "max_epochs": dl_config.max_epochs,
+        }
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
 
 
 def train_all_models(
