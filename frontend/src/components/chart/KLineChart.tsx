@@ -22,18 +22,13 @@ interface KLineChartProps {
   assetType: "crypto" | "stocks";
 }
 
-// Resolve CSS variables to standard HSL/HSLA strings for lightweight-charts
+// Resolve CSS variables to color strings for lightweight-charts
 const getChartColor = (cssVar: string, fallbackHex: string) => {
   if (typeof document === "undefined") return fallbackHex;
   const val = getComputedStyle(document.documentElement)
     .getPropertyValue(cssVar)
     .trim();
-
-  // If it's a standard hsl/hsla format, use it
-  if (val.startsWith("hsl")) return val;
-
-  // Otherwise fall back to hex (handles lab/oklch or missing variables)
-  return fallbackHex;
+  return val || fallbackHex;
 };
 
 function formatVolume(vol: number): string {
