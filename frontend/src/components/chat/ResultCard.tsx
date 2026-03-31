@@ -26,7 +26,7 @@ export function ResultCard({ symbol, query, progress, result, isAnalyzing }: Res
         </div>
         <p className="text-xs text-muted-foreground truncate">{query}</p>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto space-y-2">
+      <CardContent className="flex-1 overflow-y-auto flex flex-col space-y-2">
         {/* Progress */}
         {progress.length > 0 && (
           <div className="space-y-1">
@@ -47,7 +47,7 @@ export function ResultCard({ symbol, query, progress, result, isAnalyzing }: Res
         )}
 
         {/* Empty state */}
-        {!isAnalyzing && !result && progress.length === 0 && (
+        {!isAnalyzing && !result?.final_decision && progress.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full py-8 text-center">
             <p className="text-sm text-muted-foreground">
               Analysis results will appear here.
