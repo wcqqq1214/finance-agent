@@ -221,7 +221,7 @@ export default function SettingsPage() {
               <div className="space-y-0.5">
                 <Label>Price Color Convention</Label>
                 <p className="text-sm text-muted-foreground">
-                  {!isMounted ? "Loading..." : trendMode === "chinese" ? "Red = Up, Green = Down (Chinese)" : "Green = Up, Red = Down (Western)"}
+                  {!isMounted ? "Loading..." : trendMode === "chinese" ? "Red = Up, Green = Down" : "Green = Up, Red = Down"}
                 </p>
               </div>
               <Switch
