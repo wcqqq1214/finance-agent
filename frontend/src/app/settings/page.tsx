@@ -11,7 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { useTrendColor } from "@/hooks/use-trend-color";
 import { api } from "@/lib/api";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 
@@ -56,6 +58,7 @@ const apiKeyConfigs: APIKeyConfig[] = [
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { trendMode, setTrendMode, isMounted } = useTrendColor();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     claude_api_key: "",
@@ -205,6 +208,29 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {datasourceConfigs.map(renderPasswordInput)}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Display Preferences</CardTitle>
+            <CardDescription>配置图表涨跌颜色习惯</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>涨跌色模式</Label>
+                <p className="text-sm text-muted-foreground">
+                  {!isMounted ? "加载中..." : trendMode === "chinese" ? "🇨🇳 红涨绿跌（Chinese）" : "🌍 绿涨红跌（Western）"}
+                </p>
+              </div>
+              <Switch
+                disabled={!isMounted}
+                checked={isMounted ? trendMode === "chinese" : false}
+                onCheckedChange={(checked: boolean) => setTrendMode(checked ? "chinese" : "western")}
+                aria-label="切换涨跌色模式"
+              />
+            </div>
           </CardContent>
         </Card>
 
