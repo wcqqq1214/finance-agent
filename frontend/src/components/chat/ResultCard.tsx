@@ -45,6 +45,15 @@ export function ResultCard({ symbol, query, progress, result, isAnalyzing }: Res
             <MarkdownRenderer content={String(result.final_decision)} />
           </div>
         )}
+
+        {/* Empty state */}
+        {!isAnalyzing && !result && progress.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Analysis results will appear here.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
