@@ -215,8 +215,8 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
 
     // Create chart
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 400,
+      width: chartContainerRef.current.clientWidth || 800,
+      height: chartContainerRef.current.clientHeight || 400,
       localization: {
         locale: 'en-US',
         dateFormat: 'yyyy-MM-dd',
@@ -427,18 +427,24 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       });
     }
 
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+    // Use ResizeObserver to track container-level size changes
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length === 0 || entries[0].target !== chartContainerRef.current) {
+        return;
       }
-    };
-    window.addEventListener('resize', handleResize);
+      const newRect = entries[0].contentRect;
+      chart.applyOptions({
+        width: newRect.width,
+        height: newRect.height
+      });
+    });
+
+    resizeObserver.observe(chartContainerRef.current);
 
     chartRef.current = chart;
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
