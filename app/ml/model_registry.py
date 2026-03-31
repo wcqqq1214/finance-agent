@@ -55,6 +55,66 @@ def _extract_parameters(model: Any, model_type: str, dl_config: DLConfig | None 
         raise ValueError(f"Unknown model type: {model_type}")
 
 
+def _calculate_fusion_score(predictions: Dict[str, float], metrics: Dict[str, Dict]) -> float:
+    """Calculate weighted average fusion score.
+
+    Weight = Mean AUC of each model
+
+    Args:
+        predictions: Dict with keys "lightgbm", "gru", "lstm" and float values (0-1)
+        metrics: Dict with same keys, each containing "mean_auc" field
+
+    Returns:
+        Fusion score (0-1)
+    """
+    total_auc = sum(metrics[m]["mean_auc"] for m in predictions.keys() if m in metrics)
+    if total_auc == 0:
+        return float(np.mean(list(predictions.values())))
+
+    fusion = sum(
+        predictions[m] * metrics[m]["mean_auc"] / total_auc
+        for m in predictions.keys()
+        if m in metrics
+    )
+    return float(fusion)
+
+
+def _extract_feature_importance(model: Any, X: pd.DataFrame, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Extract top K feature importances from LightGBM model.
+
+    Args:
+        model: Trained LGBMClassifier
+        X: Feature matrix (used to get feature names from columns)
+        top_k: Number of top features to extract
+
+    Returns:
+        List of dicts with "name" and "importance" keys
+    """
+    try:
+        importances = model.feature_importances_
+        feature_names = X.columns.tolist()
+
+        if len(feature_names) == 0 or len(importances) == 0:
+            return []
+
+        # Ensure lengths match
+        if len(importances) != len(feature_names):
+            logger.warning(f"Feature count mismatch: {len(importances)} importances vs {len(feature_names)} names")
+            return []
+
+        top_indices = np.argsort(importances)[-top_k:][::-1]
+        return [
+            {
+                "name": str(feature_names[i]),
+                "importance": float(importances[i])
+            }
+            for i in top_indices
+        ]
+    except Exception as e:
+        logger.error(f"Failed to extract feature importance: {e}")
+        return []
+
+
 def train_all_models(
     X: pd.DataFrame | None = None,
     y: pd.Series | None = None,
