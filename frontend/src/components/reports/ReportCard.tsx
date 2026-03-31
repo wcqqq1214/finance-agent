@@ -3,6 +3,7 @@
 
 import { format, formatDistanceToNow, isAfter, subHours } from "date-fns";
 import {
+  Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
@@ -33,67 +34,69 @@ export function ReportCard({ report }: ReportCardProps) {
     markdownSummary(report.reports.cio, 200) || "No summary available.";
 
   return (
-    <AccordionItem value={report.id} className="rounded-lg border px-4">
-      <AccordionTrigger className="py-4 hover:no-underline">
-        <div className="flex w-full flex-col gap-1.5 pr-4 text-left">
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-bold">{report.symbol}</span>
-            <Badge variant="outline" className="text-xs">
-              {report.assetType}
-            </Badge>
-            <span className="ml-auto text-xs text-muted-foreground">
-              {formatTimestamp(report.timestamp)}
-            </span>
+    <Accordion type="single" collapsible>
+      <AccordionItem value={report.id} className="rounded-lg border px-4">
+        <AccordionTrigger className="py-4 hover:no-underline">
+          <div className="flex w-full flex-col gap-1.5 pr-4 text-left">
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold">{report.symbol}</span>
+              <Badge variant="outline" className="text-xs">
+                {report.assetType}
+              </Badge>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {formatTimestamp(report.timestamp)}
+              </span>
+            </div>
+            <p className="truncate text-sm text-foreground">{report.query}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">
+              {summary}
+            </p>
           </div>
-          <p className="truncate text-sm text-foreground">{report.query}</p>
-          <p className="line-clamp-2 text-xs text-muted-foreground">
-            {summary}
-          </p>
-        </div>
-      </AccordionTrigger>
+        </AccordionTrigger>
 
-      <AccordionContent className="pb-4">
-        <Tabs defaultValue="cio">
-          <TabsList className="mb-4">
-            <TabsTrigger value="cio">CIO 决策</TabsTrigger>
-            <TabsTrigger value="quant">Quant 分析</TabsTrigger>
-            <TabsTrigger value="news">News 情绪</TabsTrigger>
-            <TabsTrigger value="social">Social 情绪</TabsTrigger>
-          </TabsList>
+        <AccordionContent className="pb-4">
+          <Tabs defaultValue="cio">
+            <TabsList className="mb-4">
+              <TabsTrigger value="cio">CIO 决策</TabsTrigger>
+              <TabsTrigger value="quant">Quant 分析</TabsTrigger>
+              <TabsTrigger value="news">News 情绪</TabsTrigger>
+              <TabsTrigger value="social">Social 情绪</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="cio">
-            {report.reports.cio ? (
-              <MarkdownRenderer content={report.reports.cio} />
-            ) : (
-              <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
-            )}
-          </TabsContent>
+            <TabsContent value="cio">
+              {report.reports.cio ? (
+                <MarkdownRenderer content={report.reports.cio} />
+              ) : (
+                <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
+              )}
+            </TabsContent>
 
-          <TabsContent value="quant">
-            {report.reports.quant ? (
-              <MarkdownRenderer content={report.reports.quant} />
-            ) : (
-              <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
-            )}
-          </TabsContent>
+            <TabsContent value="quant">
+              {report.reports.quant ? (
+                <MarkdownRenderer content={report.reports.quant} />
+              ) : (
+                <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
+              )}
+            </TabsContent>
 
-          <TabsContent value="news">
-            {report.reports.news ? (
-              <MarkdownRenderer content={report.reports.news} />
-            ) : (
-              <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
-            )}
-          </TabsContent>
+            <TabsContent value="news">
+              {report.reports.news ? (
+                <MarkdownRenderer content={report.reports.news} />
+              ) : (
+                <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
+              )}
+            </TabsContent>
 
-          <TabsContent value="social">
-            {report.reports.social ? (
-              <MarkdownRenderer content={report.reports.social} />
-            ) : (
-              <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
-            )}
-          </TabsContent>
-        </Tabs>
-      </AccordionContent>
-    </AccordionItem>
+            <TabsContent value="social">
+              {report.reports.social ? (
+                <MarkdownRenderer content={report.reports.social} />
+              ) : (
+                <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
+              )}
+            </TabsContent>
+          </Tabs>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
