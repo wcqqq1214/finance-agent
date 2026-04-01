@@ -152,6 +152,13 @@ def generate_comparison_report(
     if X.empty:
         raise ValueError("Feature matrix X is empty")
 
+    # Validate date_range format
+    if not isinstance(date_range, tuple) or len(date_range) != 2:
+        raise ValueError(f"date_range must be tuple of (start_date, end_date), got {type(date_range)}")
+    start_date, end_date = date_range
+    if not isinstance(start_date, str) or not isinstance(end_date, str):
+        raise ValueError(f"date_range elements must be strings in YYYY-MM-DD format, got ({type(start_date)}, {type(end_date)})")
+
     # Extract predictions
     predictions = {
         model_name: result["prediction"]
@@ -163,6 +170,11 @@ def generate_comparison_report(
         model_name: result["metrics"]
         for model_name, result in results.items()
     }
+
+    # Validate all models have mean_auc in metrics
+    for model_name, model_metrics in metrics.items():
+        if "mean_auc" not in model_metrics:
+            raise ValueError(f"Model {model_name} missing 'mean_auc' in metrics. Available keys: {list(model_metrics.keys())}")
 
     # Extract parameters
     parameters = {}
@@ -180,13 +192,19 @@ def generate_comparison_report(
     # Extract feature importance (LightGBM only)
     feature_importance = {}
     if "lightgbm" in results:
+        lgbm_model = results["lightgbm"]["model"]
         try:
-            lgbm_model = results["lightgbm"]["model"]
             top_features = _extract_feature_importance(lgbm_model, X, top_k=3)
             if top_features:
                 feature_importance["lightgbm"] = {"top_features": top_features}
+            else:
+                logger.warning("LightGBM feature importance extraction returned empty list")
+        except AttributeError as e:
+            logger.error(f"LightGBM model missing feature_importances_ attribute: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid feature importance data for LightGBM: {e}")
         except Exception as e:
-            logger.error(f"Failed to extract feature importance: {e}")
+            logger.error(f"Unexpected error extracting LightGBM feature importance: {e}", exc_info=True)
 
     # Build report
     report = {
