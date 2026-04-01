@@ -499,6 +499,75 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
     lstm_cv = "N/A"
     lines.append(f"| Cross Validation | {lgbm_cv} | {gru_cv} | {lstm_cv} |\n")
 
+    # Part 2: Metrics and Predictions
+    if "metrics" not in report:
+        raise ValueError("Report missing 'metrics' section")
+    if "predictions" not in report:
+        raise ValueError("Report missing 'predictions' section")
+
+    metrics = report["metrics"]
+    predictions = report["predictions"]
+
+    # Metrics section
+    lines.append("## 性能指标\n")
+    lines.append("| 指标 | LightGBM | GRU | LSTM |")
+    lines.append("|------|----------|-----|------|")
+
+    # Mean AUC
+    lgbm_auc = metrics.get("lightgbm", {}).get("mean_auc", "N/A")
+    gru_auc = metrics.get("gru", {}).get("mean_auc", "N/A")
+    lstm_auc = metrics.get("lstm", {}).get("mean_auc", "N/A")
+
+    lgbm_auc_str = f"{lgbm_auc:.4f}" if isinstance(lgbm_auc, (int, float)) else lgbm_auc
+    gru_auc_str = f"{gru_auc:.4f}" if isinstance(gru_auc, (int, float)) else gru_auc
+    lstm_auc_str = f"{lstm_auc:.4f}" if isinstance(lstm_auc, (int, float)) else lstm_auc
+    lines.append(f"| Mean AUC | {lgbm_auc_str} | {gru_auc_str} | {lstm_auc_str} |")
+
+    # Mean Accuracy
+    lgbm_acc = metrics.get("lightgbm", {}).get("mean_accuracy", "N/A")
+    gru_acc = metrics.get("gru", {}).get("mean_accuracy", "N/A")
+    lstm_acc = metrics.get("lstm", {}).get("mean_accuracy", "N/A")
+
+    lgbm_acc_str = f"{lgbm_acc:.4f}" if isinstance(lgbm_acc, (int, float)) else lgbm_acc
+    gru_acc_str = f"{gru_acc:.4f}" if isinstance(gru_acc, (int, float)) else gru_acc
+    lstm_acc_str = f"{lstm_acc:.4f}" if isinstance(lstm_acc, (int, float)) else lstm_acc
+    lines.append(f"| Mean Accuracy | {lgbm_acc_str} | {gru_acc_str} | {lstm_acc_str} |")
+
+    # Training time
+    lgbm_time = metrics.get("lightgbm", {}).get("training_time", "N/A")
+    gru_time = metrics.get("gru", {}).get("training_time", "N/A")
+    lstm_time = metrics.get("lstm", {}).get("training_time", "N/A")
+
+    lgbm_time_str = f"{lgbm_time:.2f}秒" if isinstance(lgbm_time, (int, float)) else lgbm_time
+    gru_time_str = f"{gru_time:.2f}秒" if isinstance(gru_time, (int, float)) else gru_time
+    lstm_time_str = f"{lstm_time:.2f}秒" if isinstance(lstm_time, (int, float)) else lstm_time
+    lines.append(f"| Training Time | {lgbm_time_str} | {gru_time_str} | {lstm_time_str} |\n")
+
+    # Predictions section
+    lines.append("## 最新预测信号\n")
+    lines.append("| 模型 | 预测概率 | 信号 |")
+    lines.append("|------|---------|------|")
+
+    # Individual model predictions
+    for model_name in ["lightgbm", "gru", "lstm"]:
+        if model_name in predictions and model_name != "fusion_score":
+            pred_prob = predictions[model_name]
+            pred_pct = f"{pred_prob * 100:.1f}%"
+            signal = "看涨" if pred_prob > 0.5 else "看跌"
+            lines.append(f"| {model_name.upper()} | {pred_pct} | {signal} |")
+
+    # Fusion signal
+    fusion_score = predictions.get("fusion_score", "N/A")
+    if isinstance(fusion_score, (int, float)):
+        fusion_pct = f"{fusion_score * 100:.1f}%"
+        fusion_signal = "看涨" if fusion_score > 0.5 else "看跌"
+        lines.append(f"| **融合信号** | **{fusion_pct}** | **{fusion_signal}** |\n")
+    else:
+        lines.append(f"| **融合信号** | **N/A** | **N/A** |\n")
+
+    # Fusion algorithm explanation
+    lines.append("**融合算法**：加权平均，权重 = 各模型的 Mean AUC\n")
+
     return "\n".join(lines)
 
 
