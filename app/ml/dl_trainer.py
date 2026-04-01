@@ -179,7 +179,11 @@ def train_dl_model(
                     loss = criterion(logits, y_batch)
                     val_loss += loss.item()
 
-            val_loss /= len(val_loader)
+            # Handle empty validation set
+            if len(val_loader) > 0:
+                val_loss /= len(val_loader)
+            else:
+                val_loss = float("inf")
 
             # Learning rate scheduling
             scheduler.step(val_loss)

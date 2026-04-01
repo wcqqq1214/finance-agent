@@ -67,54 +67,51 @@ class DLConfig:
 
 # Feature columns that require scaling (RobustScaler)
 # These are continuous features with varying ranges that benefit from normalization
-# CRITICAL: rsi_14 must be included to prevent gradient imbalance during training
+# CRITICAL: RSI_14 must be included to prevent gradient imbalance during training
 COLUMNS_TO_SCALE = [
-    # Returns (percentage changes)
-    "ret_1d",
-    "ret_3d",
-    "ret_5d",
-    "ret_10d",
+    # Returns (percentage changes) - CamelCase from build_dataset
+    "Ret_1d",
+    "Ret_3d",
+    "Ret_5d",
+    "Ret_10d",
     # Volatility features
-    "volatility_5d",
-    "volatility_10d",
+    "Volatility_5d",
+    "Volatility_10d",
     # Volume ratio
-    "volume_ratio_5d",
+    "Volume_Ratio",
     # Gap (price gap from previous close)
-    "gap",
+    "Gap",
     # Moving average ratio
-    "ma5_vs_ma20",
+    "Dist_SMA_20",
     # RSI (0-100 scale, but needs normalization for neural networks)
-    "rsi_14",
-    # Count features (need scaling due to varying ranges)
-    "n_articles",
-    "n_relevant",
-    "n_positive",
-    "n_negative",
-    # Rolling news count features
-    "news_count_3d",
-    "news_count_5d",
-    "news_count_10d",
+    "RSI_14",
+    # MACD features
+    "MACD",
+    "MACD_Signal",
+    "MACD_Hist",
+    # Technical indicators
+    "CCI_14",
+    "ADX_14",
+    "PlusDI_14",
+    "MinusDI_14",
+    "ATR_14",
+    # Bollinger Bands
+    "BBL_5_2.0",
+    "BBU_5_2.0",
 ]
 
 # Feature columns that pass through without scaling
 # These are categorical or already normalized features (typically -1 to 1 or 0 to 1)
 PASSTHROUGH_COLUMNS = [
     # Categorical: day of week (0-4 for Mon-Fri)
-    "day_of_week",
+    "DayOfWeek",
     # Categorical: has news flag
-    "has_news",
-    "n_neutral",
-    # News sentiment features (already normalized to -1 to 1 range)
-    "sentiment_score",
-    "relevance_ratio",
-    "positive_ratio",
-    "negative_ratio",
-    # Rolling news sentiment features (already normalized)
-    "sentiment_score_3d",
-    "sentiment_score_5d",
-    "sentiment_score_10d",
-    # Sentiment momentum (already normalized)
-    "sentiment_momentum_3d",
+    "HasNews",
+    # DXY features
+    "DXY_Ret_1d",
+    "DXY_Ret_5d",
+    # VIX
+    "VIX",
 ]
 
 
