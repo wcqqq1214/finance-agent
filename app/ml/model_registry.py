@@ -379,6 +379,129 @@ def predict_proba_latest_dl(
     return float(proba)
 
 
+def format_comparison_markdown(report: Dict[str, Any]) -> str:
+    """Format comparison report as Markdown (Part 1: Header and Parameters).
+
+    Generates header, metadata, and parameters sections for model comparison report.
+
+    Args:
+        report: Output from generate_comparison_report()
+
+    Returns:
+        Formatted Markdown string with header, metadata, and parameters sections
+
+    Raises:
+        ValueError: If report missing required sections
+    """
+    if "metadata" not in report:
+        raise ValueError("Report missing 'metadata' section")
+    if "parameters" not in report:
+        raise ValueError("Report missing 'parameters' section")
+
+    lines = []
+
+    # Header
+    lines.append("# 量化预测模型对比报告\n")
+
+    # Metadata section
+    metadata = report["metadata"]
+    symbol = metadata.get("symbol", "N/A")
+    date_range = metadata.get("date_range", ("N/A", "N/A"))
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        date_str = f"{date_range[0]} 至 {date_range[1]}"
+    else:
+        date_str = "N/A"
+    data_points = metadata.get("data_points", "N/A")
+    generated_at = metadata.get("generated_at", "N/A")
+
+    lines.append("## 报告元数据\n")
+    lines.append(f"- **股票代码**: {symbol}")
+    lines.append(f"- **时间范围**: {date_str}")
+    lines.append(f"- **数据点数**: {data_points}")
+    lines.append(f"- **生成时间**: {generated_at}\n")
+
+    # Parameters section
+    parameters = report["parameters"]
+    lines.append("## 模型参数对比\n")
+
+    # Data Processing subsection
+    lines.append("### 数据处理 (Data Processing)\n")
+    lines.append("| 参数 | LightGBM | GRU | LSTM |")
+    lines.append("|------|----------|-----|------|")
+
+    # Core perspective
+    lgbm_perspective = parameters.get("lightgbm", ).get("objective", "N/A")
+    gru_perspective = "时间序列"
+    lstm_perspective = "时间序列"
+    lines.append(f"| Core Perspective | {lgbm_perspective} | {gru_perspective} | {lstm_perspective} |")
+
+    # Lookback window
+    lgbm_lookback = "N/A"
+    gru_lookback = parameters.get("gru", {}).get("seq_len", "N/A")
+    lstm_lookback = parameters.get("lstm", {}).get("seq_len", "N/A")
+    lines.append(f"| Lookback Window | {lgbm_lookback} | {gru_lookback} | {lstm_lookback} |")
+
+    # Normalization
+    lgbm_norm = "无"
+    gru_norm = "RobustScaler"
+    lstm_norm = "RobustScaler"
+    lines.append(f"| Normalization | {lgbm_norm} | {gru_norm} | {lstm_norm} |\n")
+
+    # Network Structure subsection
+    lines.append("### 网络结构 (Network Structure)\n")
+    lines.append("| 参数 | LightGBM | GRU | LSTM |")
+    lines.append("|------|----------|-----|------|")
+
+    # Hidden size
+    lgbm_hidden = "N/A"
+    gru_hidden = parameters.get("gru", {}).get("hidden_size", "N/A")
+    lstm_hidden = parameters.get("lstm", {}).get("hidden_size", "N/A")
+    lines.append(f"| Hidden Size | {lgbm_hidden} | {gru_hidden} | {lstm_hidden} |")
+
+    # Number of layers
+    lgbm_layers = "N/A"
+    gru_layers = parameters.get("gru", {}).get("num_layers", "N/A")
+    lstm_layers = parameters.get("lstm", {}).get("num_layers", "N/A")
+    lines.append(f"| Num Layers | {lgbm_layers} | {gru_layers} | {lstm_layers} |")
+
+    # Dropout
+    lgbm_dropout = "N/A"
+    gru_dropout = parameters.get("gru", {}).get("dropout", "N/A")
+    lstm_dropout = parameters.get("lstm", {}).get("dropout", "N/A")
+    lines.append(f"| Dropout | {lgbm_dropout} | {gru_dropout} | {lstm_dropout} |\n")
+
+    # Training Config subsection
+    lines.append("### 训练配置 (Training Config)\n")
+    lines.append("| 参数 | LightGBM | GRU | LSTM |")
+    lines.append("|------|----------|-----|------|")
+
+    # Learning rate
+    lgbm_lr = parameters.get("lightgbm", {}).get("learning_rate", "N/A")
+    gru_lr = parameters.get("gru", {}).get("learning_rate", "N/A")
+    lstm_lr = parameters.get("lstm", {}).get("learning_rate", "N/A")
+    lines.append(f"| Learning Rate | {lgbm_lr} | {gru_lr} | {lstm_lr} |")
+
+    # Regularization
+    lgbm_reg = parameters.get("lightgbm", {}).get("reg_lambda", "N/A")
+    gru_reg = parameters.get("gru", {}).get("weight_decay", "N/A")
+    lstm_reg = parameters.get("lstm", {}).get("weight_decay", "N/A")
+    lines.append(f"| Regularization | {lgbm_reg} | {gru_reg} | {lstm_reg} |")
+
+    # Batch size
+    lgbm_batch = "N/A"
+    gru_batch = parameters.get("gru", {}).get("batch_size", "N/A")
+    lstm_batch = parameters.get("lstm", {}).get("batch_size", "N/A")
+    lines.append(f"| Batch Size | {lgbm_batch} | {gru_batch} | {lstm_batch} |")
+
+    # Cross validation
+    lgbm_cv = "5-fold"
+    gru_cv = "N/A"
+    lstm_cv = "N/A"
+    lines.append(f"| Cross Validation | {lgbm_cv} | {gru_cv} | {lstm_cv} |\n")
+
+    return "\n".join(lines)
+
+
 def format_predictions_for_agent(results: Dict[str, Dict]) -> str:
     """Format multi-model predictions as Markdown for CIO Agent.
 
