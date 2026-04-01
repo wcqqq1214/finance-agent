@@ -53,7 +53,7 @@ class DLConfig:
     weight_decay: float = 1e-4
     max_epochs: int = 100
     early_stopping_patience: int = 10
-    n_splits: int = 5
+    n_splits: int = 3
     device: str = None
 
     def __post_init__(self):
@@ -67,51 +67,72 @@ class DLConfig:
 
 # Feature columns that require scaling (RobustScaler)
 # These are continuous features with varying ranges that benefit from normalization
-# CRITICAL: RSI_14 must be included to prevent gradient imbalance during training
+# CRITICAL: rsi_14 must be included to prevent gradient imbalance during training
 COLUMNS_TO_SCALE = [
-    # Returns (percentage changes) - CamelCase from build_dataset
-    "Ret_1d",
-    "Ret_3d",
-    "Ret_5d",
-    "Ret_10d",
+    # Returns (percentage changes) - lowercase from build_features
+    "ret_1d",
+    "ret_3d",
+    "ret_5d",
+    "ret_10d",
     # Volatility features
-    "Volatility_5d",
-    "Volatility_10d",
+    "volatility_5d",
+    "volatility_10d",
     # Volume ratio
-    "Volume_Ratio",
+    "volume_ratio_5d",
     # Gap (price gap from previous close)
-    "Gap",
+    "gap",
     # Moving average ratio
-    "Dist_SMA_20",
+    "ma5_vs_ma20",
     # RSI (0-100 scale, but needs normalization for neural networks)
-    "RSI_14",
-    # MACD features
-    "MACD",
-    "MACD_Signal",
-    "MACD_Hist",
-    # Technical indicators
-    "CCI_14",
-    "ADX_14",
-    "PlusDI_14",
-    "MinusDI_14",
-    "ATR_14",
-    # Bollinger Bands
-    "BBL_5_2.0",
-    "BBU_5_2.0",
+    "rsi_14",
+    # Technical indicators (if present)
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "cci_14",
+    "adx_14",
+    "plusdi_14",
+    "minusdi_14",
+    "atr_14",
+    # Bollinger Bands (if present)
+    "bb_lower",
+    "bb_upper",
 ]
 
 # Feature columns that pass through without scaling
 # These are categorical or already normalized features (typically -1 to 1 or 0 to 1)
 PASSTHROUGH_COLUMNS = [
     # Categorical: day of week (0-4 for Mon-Fri)
-    "DayOfWeek",
+    "day_of_week",
     # Categorical: has news flag
-    "HasNews",
-    # DXY features
-    "DXY_Ret_1d",
-    "DXY_Ret_5d",
-    # VIX
-    "VIX",
+    "has_news",
+    "n_neutral",
+    # News sentiment features (already normalized to -1 to 1 range)
+    "sentiment_score",
+    "relevance_ratio",
+    "positive_ratio",
+    "negative_ratio",
+    # Rolling news sentiment features (already normalized)
+    "sentiment_score_3d",
+    "sentiment_score_5d",
+    "sentiment_score_10d",
+    # Sentiment momentum (already normalized)
+    "sentiment_momentum_3d",
+    # Rolling ratio features
+    "positive_ratio_3d",
+    "positive_ratio_5d",
+    "positive_ratio_10d",
+    "negative_ratio_3d",
+    "negative_ratio_5d",
+    "negative_ratio_10d",
+    # News counts
+    "n_articles",
+    "n_positive",
+    "n_negative",
+    "n_relevant",
+    "news_count_3d",
+    "news_count_5d",
+    "news_count_10d",
 ]
 
 

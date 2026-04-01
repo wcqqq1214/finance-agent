@@ -133,6 +133,18 @@ def prepare_dl_data(
     scale_cols = [c for c in COLUMNS_TO_SCALE if c in X_train.columns]
     pass_cols = [c for c in PASSTHROUGH_COLUMNS if c in X_train.columns]
 
+    # Fallback 1: If no columns matched (e.g., case mismatch), default all to scaling
+    if not scale_cols and not pass_cols:
+        logger.warning("No matched features (case mismatch?), fallback: scale all features")
+        scale_cols = list(X_train.columns)
+        pass_cols = []
+
+    # Fallback 2: Auto-catch new features not in config
+    missing_cols = [c for c in X_train.columns if c not in scale_cols and c not in pass_cols]
+    if missing_cols:
+        logger.info(f"Auto-adding unmapped features to pass-through: {missing_cols}")
+        pass_cols.extend(missing_cols)
+
     # Fold-isolated scaling
     X_train_scaled = X_train.copy()
     X_test_scaled = X_test_extended.copy()
