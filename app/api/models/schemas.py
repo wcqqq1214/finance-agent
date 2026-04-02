@@ -12,13 +12,23 @@ class AnalyzeResponse(BaseModel):
     status: str
 
 
+class ReportTexts(BaseModel):
+    cio: Optional[str] = None
+    quant: Optional[str] = None
+    news: Optional[str] = None
+    social: Optional[str] = None
+
+
 class Report(BaseModel):
     id: str
     symbol: str
     timestamp: str
+    query: Optional[str] = None
+    final_decision: Optional[str] = None
     quant_analysis: Optional[Dict[str, Any]] = None
     news_sentiment: Optional[Dict[str, Any]] = None
     social_sentiment: Optional[Dict[str, Any]] = None
+    reports: Optional[ReportTexts] = None
 
 
 class ServiceStatus(BaseModel):

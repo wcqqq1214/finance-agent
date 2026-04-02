@@ -88,6 +88,51 @@ def _format_json_block(obj: Any) -> str:
     return str(obj)
 
 
+def _strip_markdown_h1(markdown: str) -> str:
+    """Drop a leading H1 so prompt wrappers remain the only top-level headings."""
+
+    text = (markdown or "").strip()
+    if not text:
+        return text
+    lines = text.splitlines()
+    if lines and lines[0].startswith("# "):
+        return "\n".join(lines[1:]).lstrip()
+    return text
+
+
+def _get_prompt_report_block(
+    report_obj: Dict[str, Any],
+    fallback_formatter,
+) -> str:
+    """Prefer a prebuilt markdown report, otherwise synthesize one on the fly."""
+
+    markdown = report_obj.get("markdown_report")
+    if isinstance(markdown, str) and markdown.strip():
+        return _strip_markdown_h1(markdown)
+    return fallback_formatter(report_obj)
+
+
+def _get_readable_report_text(
+    state: AgentState,
+    *,
+    report_key: str,
+    report_obj_key: str,
+) -> str | None:
+    """Resolve the readable report text from state, falling back to embedded markdown."""
+
+    report_text = state.get(report_key)
+    if isinstance(report_text, str) and report_text.strip():
+        return report_text
+
+    report_obj = state.get(report_obj_key)
+    if isinstance(report_obj, dict):
+        markdown = report_obj.get("markdown_report")
+        if isinstance(markdown, str) and markdown.strip():
+            return markdown
+
+    return None
+
+
 def _format_quant_report_for_cio(quant_obj: Dict[str, Any]) -> str:
     """Convert the quant report into a structured prompt block for CIO."""
 
@@ -146,6 +191,82 @@ def _format_quant_report_for_cio(quant_obj: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_news_report_for_cio(news_obj: Dict[str, Any]) -> str:
+    """Convert the news report into a structured prompt block for CIO."""
+
+    key_points = news_obj.get("key_points", []) if isinstance(news_obj.get("key_points"), list) else []
+    sources = news_obj.get("sources", []) if isinstance(news_obj.get("sources"), list) else []
+    markets = (
+        news_obj.get("polymarket_markets", [])
+        if isinstance(news_obj.get("polymarket_markets"), list)
+        else []
+    )
+
+    lines: List[str] = [
+        "News sentiment summary:",
+        f"- asset: {news_obj.get('asset', 'UNKNOWN')}",
+        f"- bias: {news_obj.get('bias', 'neutral')}",
+        f"- prediction_insights: {news_obj.get('prediction_insights') or 'N/A'}",
+        f"- source_count: {len(sources)}",
+        "",
+        "Key news points:",
+    ]
+    if key_points:
+        lines.extend(f"- {point}" for point in key_points[:6])
+    else:
+        lines.append("- No key points available.")
+
+    lines.extend(["", "Recent source coverage:"])
+    if sources:
+        for item in sources[:5]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "- "
+                f"{item.get('source') or 'Unknown source'} | "
+                f"{item.get('published_time') or 'Unknown time'} | "
+                f"{item.get('title') or 'Untitled'}"
+            )
+    else:
+        lines.append("- No source articles available.")
+
+    if markets:
+        lines.extend(["", "Prediction markets:"])
+        for market in markets[:3]:
+            if not isinstance(market, dict):
+                continue
+            lines.append(
+                "- "
+                f"{market.get('question') or 'Unknown market'} | "
+                f"yes={market.get('probability_yes')} | "
+                f"no={market.get('probability_no')} | "
+                f"volume_total={market.get('volume_total')}"
+            )
+
+    return "\n".join(lines)
+
+
+def _format_social_report_for_cio(social_obj: Dict[str, Any]) -> str:
+    """Convert the social report into a structured prompt block for CIO."""
+
+    meta = social_obj.get("meta", {}) if isinstance(social_obj.get("meta"), dict) else {}
+    keywords = social_obj.get("keywords", []) if isinstance(social_obj.get("keywords"), list) else []
+
+    lines: List[str] = [
+        "Social sentiment summary:",
+        f"- asset: {social_obj.get('asset', 'UNKNOWN')}",
+        f"- sentiment: {social_obj.get('sentiment', 'neutral')}",
+        f"- summary: {social_obj.get('summary') or 'N/A'}",
+        f"- keywords: {', '.join(str(item) for item in keywords) if keywords else 'N/A'}",
+        f"- source: {meta.get('source') or 'N/A'}",
+        f"- window: {meta.get('window') or 'N/A'}",
+        f"- post_count: {meta.get('post_count')}",
+        f"- comment_count: {meta.get('comment_count')}",
+        f"- subreddits: {', '.join(str(item) for item in meta.get('subreddits', [])) if isinstance(meta.get('subreddits'), list) and meta.get('subreddits') else 'N/A'}",
+    ]
+    return "\n".join(lines)
+
+
 def _build_aggregated_report(
     state: AgentState,
     *,
@@ -161,6 +282,7 @@ def _build_aggregated_report(
     return {
         "symbol": asset,
         "asset": asset,
+        "query": state.get("query", ""),
         "timestamp": generated_at_utc,
         "module": "report",
         "meta": {
@@ -171,6 +293,18 @@ def _build_aggregated_report(
         "news_sentiment": state.get("news_report_obj", {}),
         "social_sentiment": state.get("social_report_obj", {}),
         "final_decision": final_decision,
+        "reports": {
+            "cio": final_decision,
+            "quant": _get_readable_report_text(
+                state, report_key="quant_report", report_obj_key="quant_report_obj"
+            ),
+            "news": _get_readable_report_text(
+                state, report_key="news_report", report_obj_key="news_report_obj"
+            ),
+            "social": _get_readable_report_text(
+                state, report_key="social_report", report_obj_key="social_report_obj"
+            ),
+        },
         "report_paths": {
             "quant": state.get("quant_report_path"),
             "news": state.get("news_report_path"),
@@ -391,9 +525,11 @@ def _parallel_runner(state: AgentState) -> Dict[str, Any]:
         news_obj = cast(Dict[str, Any], fut_news.result())
         social_obj = cast(Dict[str, Any], fut_social.result())
 
-        quant_report = json.dumps(quant_obj, ensure_ascii=False)
-        news_report = json.dumps(news_obj, ensure_ascii=False)
-        social_report = json.dumps(social_obj, ensure_ascii=False)
+        quant_report = str(quant_obj.get("markdown_report") or json.dumps(quant_obj, ensure_ascii=False))
+        news_report = str(news_obj.get("markdown_report") or json.dumps(news_obj, ensure_ascii=False))
+        social_report = str(
+            social_obj.get("markdown_report") or json.dumps(social_obj, ensure_ascii=False)
+        )
 
     out: Dict[str, Any] = {
         "run_id": ctx.run_id,
@@ -418,17 +554,17 @@ def _cio_node(state: AgentState, *, config: Optional[RunnableConfig] = None) -> 
     news_obj = state.get("news_report_obj", {})
     social_obj = state.get("social_report_obj", {})
     quant_report = (
-        _format_quant_report_for_cio(quant_obj)
+        _get_prompt_report_block(quant_obj, _format_quant_report_for_cio)
         if isinstance(quant_obj, dict) and quant_obj
         else str(state.get("quant_report") or "(No quantitative report)")
     )
     news_report = (
-        f"[Macro news sentiment report]\n{_format_json_block(news_obj)}"
+        _get_prompt_report_block(news_obj, _format_news_report_for_cio)
         if isinstance(news_obj, dict) and news_obj
         else str(state.get("news_report") or "(No news report)")
     )
     social_report = (
-        f"[Social retail sentiment report]\n{_format_json_block(social_obj)}"
+        _get_prompt_report_block(social_obj, _format_social_report_for_cio)
         if isinstance(social_obj, dict) and social_obj
         else str(state.get("social_report") or "(No social retail sentiment report)")
     )
@@ -454,6 +590,7 @@ def _cio_node(state: AgentState, *, config: Optional[RunnableConfig] = None) -> 
     cio_obj: Dict[str, Any] = {
         "asset": (asset or "").strip().upper(),
         "module": "cio",
+        "query": query,
         "meta": {
             "generated_at_utc": generated_at_utc,
             "run_id": run_id,
@@ -464,6 +601,7 @@ def _cio_node(state: AgentState, *, config: Optional[RunnableConfig] = None) -> 
             "social": state.get("social_report_path"),
         },
         "final_decision": str(content),
+        "markdown_report": str(content),
     }
 
     cio_path = None

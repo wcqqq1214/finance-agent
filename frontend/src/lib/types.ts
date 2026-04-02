@@ -4,9 +4,19 @@ export interface Report {
   id: string;
   symbol: string;
   timestamp: string;
+  query?: string;
+  final_decision?: string;
   quant_analysis?: QuantAnalysis;
   news_sentiment?: NewsSentiment;
   social_sentiment?: SocialSentiment;
+  reports?: ReportTexts;
+}
+
+export interface ReportTexts {
+  cio?: string | null;
+  quant?: string | null;
+  news?: string | null;
+  social?: string | null;
 }
 
 export interface QuantAnalysis {

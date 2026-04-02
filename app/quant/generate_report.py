@@ -38,6 +38,7 @@ class QuantBundle(TypedDict, total=False):
     levels: Dict[str, Any]
     summary: str
     ml_quant: Dict[str, Any]
+    markdown_report: str
     report_path: str
 
 
@@ -163,6 +164,89 @@ def _fallback_summary_from_indicators(asset: str, indicators: Dict[str, Any], tr
     return f"{asset} fallback technical view: {trend}, price {price_relation} SMA20, {macd_bias}; check embedded ML block before trading."
 
 
+def _format_markdown_value(value: Any) -> str:
+    """Render a compact value for markdown reports."""
+
+    if value is None or value == "":
+        return "N/A"
+    if isinstance(value, float):
+        text = f"{value:.4f}".rstrip("0").rstrip(".")
+        return text if text else "0"
+    return str(value)
+
+
+def _build_quant_markdown(report: Dict[str, Any]) -> str:
+    """Build a deterministic markdown view from the structured quant report."""
+
+    asset = str(report.get("asset", "UNKNOWN")).upper()
+    trend = _format_markdown_value(report.get("trend"))
+    summary = str(report.get("summary") or "No technical summary available.")
+    levels = report.get("levels", {}) if isinstance(report.get("levels"), dict) else {}
+    indicators = (
+        report.get("indicators", {}) if isinstance(report.get("indicators"), dict) else {}
+    )
+    ml_quant = report.get("ml_quant", {}) if isinstance(report.get("ml_quant"), dict) else {}
+    ml_metrics = ml_quant.get("metrics", {}) if isinstance(ml_quant.get("metrics"), dict) else {}
+    signal_filter = (
+        ml_quant.get("signal_filter", {})
+        if isinstance(ml_quant.get("signal_filter"), dict)
+        else {}
+    )
+
+    lines = [
+        "# Quantitative Technical Report",
+        "",
+        "## Technical Snapshot",
+        f"- **Asset**: `{asset}`",
+        f"- **Trend**: `{trend}`",
+        f"- **Summary**: {summary}",
+        f"- **Support**: `{_format_markdown_value(levels.get('support'))}`",
+        f"- **Resistance**: `{_format_markdown_value(levels.get('resistance'))}`",
+        "",
+        "## Key Indicators",
+        f"- **Last close**: `{_format_markdown_value(indicators.get('last_close'))}`",
+        f"- **SMA 20**: `{_format_markdown_value(indicators.get('sma_20'))}`",
+        f"- **MACD line**: `{_format_markdown_value(indicators.get('macd_line'))}`",
+        f"- **MACD signal**: `{_format_markdown_value(indicators.get('macd_signal'))}`",
+        f"- **MACD histogram**: `{_format_markdown_value(indicators.get('macd_histogram'))}`",
+        f"- **Price change pct**: `{_format_markdown_value(indicators.get('price_change_pct'))}`",
+    ]
+
+    if ml_quant:
+        lines.extend(
+            [
+                "",
+                "## ML Signal Governance",
+                f"- **Model**: `{_format_markdown_value(ml_quant.get('model'))}`",
+                f"- **Target**: `{_format_markdown_value(ml_quant.get('target'))}`",
+                f"- **Policy**: `{_format_markdown_value(ml_quant.get('ml_policy'))}`",
+                (
+                    "- **Prediction flow**: "
+                    f"raw `{_format_markdown_value(ml_quant.get('prediction'))}` "
+                    f"at `{_format_markdown_value(ml_quant.get('prob_up'))}`, "
+                    f"final `{_format_markdown_value(ml_quant.get('final_prediction'))}` "
+                    f"at `{_format_markdown_value(ml_quant.get('final_prob_up'))}`"
+                ),
+                (
+                    "- **Requested symbol OOS**: "
+                    f"AUC `{_format_markdown_value(ml_metrics.get('requested_symbol_auc'))}`, "
+                    f"accuracy `{_format_markdown_value(ml_metrics.get('requested_symbol_accuracy'))}`, "
+                    f"eval rows `{_format_markdown_value(ml_metrics.get('requested_symbol_eval_rows'))}`"
+                ),
+                (
+                    "- **Signal filter**: "
+                    f"alignment `{_format_markdown_value(signal_filter.get('alignment'))}`, "
+                    f"position multiplier `{_format_markdown_value(signal_filter.get('position_multiplier'))}`, "
+                    f"historical matches `{_format_markdown_value(signal_filter.get('historical_matches'))}`"
+                ),
+            ]
+        )
+        if ml_quant.get("error"):
+            lines.append(f"- **ML error**: {ml_quant.get('error')}")
+
+    return "\n".join(lines)
+
+
 def _summarize_quant_snapshot(asset: str, indicators: Dict[str, Any]) -> tuple[TrendLabel, Dict[str, Any], str]:
     """Produce a robust quant summary with retry and deterministic fallback."""
 
@@ -270,6 +354,7 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
         "summary": summary_str,
         "ml_quant": ml_quant,
     }
+    report["markdown_report"] = _build_quant_markdown(report)
 
     path = out_dir / "quant.json"
     write_json(path, report)

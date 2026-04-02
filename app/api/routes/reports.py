@@ -36,9 +36,12 @@ async def get_reports():
                         id=report_dir.name,
                         symbol=data.get("symbol", "UNKNOWN"),
                         timestamp=data.get("timestamp", ""),
+                        query=data.get("query"),
+                        final_decision=data.get("final_decision"),
                         quant_analysis=data.get("quant_analysis"),
                         news_sentiment=data.get("news_sentiment"),
                         social_sentiment=data.get("social_sentiment"),
+                        reports=data.get("reports"),
                     )
                 )
         except Exception:
@@ -66,9 +69,12 @@ async def get_report(report_id: str):
                 id=report_id,
                 symbol=data.get("symbol", "UNKNOWN"),
                 timestamp=data.get("timestamp", ""),
+                query=data.get("query"),
+                final_decision=data.get("final_decision"),
                 quant_analysis=data.get("quant_analysis"),
                 news_sentiment=data.get("news_sentiment"),
                 social_sentiment=data.get("social_sentiment"),
+                reports=data.get("reports"),
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading report: {str(e)}") from e

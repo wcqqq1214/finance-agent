@@ -43,6 +43,12 @@ def test_cio_node_uses_structured_quant_prompt_and_writes_report_json(
             "asset": "NVDA",
             "trend": "bearish",
             "summary": "Technical summary",
+            "markdown_report": (
+                "# Quantitative Technical Report\n\n"
+                "## ML Signal Governance\n"
+                "- **Policy**: `event_driven_only`\n"
+                "- **Requested symbol OOS**: AUC `0.5259`\n"
+            ),
             "levels": {"support": 167.0, "resistance": 178.5},
             "indicators": {
                 "last_close": 165.1,
@@ -72,8 +78,16 @@ def test_cio_node_uses_structured_quant_prompt_and_writes_report_json(
                 },
             },
         },
-        "news_report_obj": {"module": "news", "summary": "Macro headline"},
-        "social_report_obj": {"module": "social", "summary": "Retail chatter"},
+        "news_report_obj": {
+            "module": "news",
+            "summary": "Macro headline",
+            "markdown_report": "# Macro News Sentiment Report\n\n- **Bias**: `bullish`\n",
+        },
+        "social_report_obj": {
+            "module": "social",
+            "summary": "Retail chatter",
+            "markdown_report": "# Social Retail Sentiment Report\n\n- **Sentiment**: `bullish`\n",
+        },
         "quant_report_path": str(tmp_path / "quant.json"),
         "news_report_path": str(tmp_path / "news.json"),
         "social_report_path": str(tmp_path / "social.json"),
@@ -83,10 +97,13 @@ def test_cio_node_uses_structured_quant_prompt_and_writes_report_json(
 
     human_message = captured["messages"][1]
     content = str(getattr(human_message, "content", ""))
-    assert "[ML Signal Governance]" in content
-    assert "ml_policy=event_driven_only" in content
-    assert "final_prediction=event_driven_only" in content
-    assert "requested_symbol_auc=0.5259" in content
+    assert "## ML Signal Governance" in content
+    assert "`event_driven_only`" in content
+    assert "AUC `0.5259`" in content
+    assert "[Macro news sentiment report]" in content
+    assert "**Bias**: `bullish`" in content
+    assert "[Social retail sentiment report]" in content
+    assert "**Sentiment**: `bullish`" in content
 
     cio_path = tmp_path / "cio.json"
     report_path = tmp_path / "report.json"
@@ -97,7 +114,10 @@ def test_cio_node_uses_structured_quant_prompt_and_writes_report_json(
 
     report_obj = json.loads(report_path.read_text(encoding="utf-8"))
     assert report_obj["symbol"] == "NVDA"
+    assert report_obj["query"] == "Analyze NVDA"
     assert report_obj["quant_analysis"]["ml_quant"]["ml_policy"] == "event_driven_only"
     assert report_obj["final_decision"] == "CIO final decision"
+    assert report_obj["reports"]["cio"] == "CIO final decision"
+    assert report_obj["reports"]["quant"].startswith("# Quantitative Technical Report")
     assert report_obj["report_paths"]["cio"] == str(cio_path)
     assert report_obj["report_paths"]["aggregate"] == str(report_path)

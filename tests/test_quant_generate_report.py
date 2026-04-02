@@ -76,6 +76,8 @@ def test_generate_report_retries_llm_summary_before_fallback(tmp_path, monkeypat
     assert report["levels"]["support"] == 108.0
     assert report["summary"] == "Momentum improved after a brief parser retry."
     assert report["ml_quant"]["ml_policy"] == "event_driven_only"
+    assert "# Quantitative Technical Report" in report["markdown_report"]
+    assert "## ML Signal Governance" in report["markdown_report"]
     assert Path(tmp_path, "quant.json").exists()
 
 
@@ -116,3 +118,4 @@ def test_generate_report_falls_back_to_rules_when_llm_summary_stays_invalid(tmp_
     assert report["ml_quant"]["final_prediction"] == "event_driven_only"
     saved = json.loads(Path(tmp_path, "quant.json").read_text(encoding="utf-8"))
     assert saved["ml_quant"]["ml_policy"] == "event_driven_only"
+    assert "fallback technical view" in saved["markdown_report"]

@@ -10,9 +10,9 @@ class AgentState(TypedDict):
 
     Attributes:
         query: User's original question (e.g. analysis request for BTC-USD or NVDA).
-        quant_report: Technical/quantitative report produced by Quant_Agent only.
-        news_report: News-sentiment report produced by News_Agent only.
-        social_report: Retail/social sentiment report produced by Social_Agent only.
+        quant_report: Readable technical/quantitative report text for CIO/frontend use.
+        news_report: Readable news-sentiment report text for CIO/frontend use.
+        social_report: Readable retail/social sentiment report text for CIO/frontend use.
         run_id: Per-run identifier (YYYYMMDD_HHMMSS).
         run_dir: Per-run output directory path (data/reports/{run_id}_{asset}/).
         quant_report_obj/news_report_obj/social_report_obj: Structured dicts for CIO bundling.

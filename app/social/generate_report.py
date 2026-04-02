@@ -24,7 +24,60 @@ class SocialBundle(TypedDict, total=False):
     sentiment: str
     keywords: list[str]
     summary: str
+    markdown_report: str
     report_path: str
+
+
+def _format_markdown_value(value: Any) -> str:
+    """Render a compact value for markdown reports."""
+
+    if value is None or value == "":
+        return "N/A"
+    return str(value)
+
+
+def _build_social_markdown(report: Dict[str, Any]) -> str:
+    """Build a deterministic markdown view from the structured social report."""
+
+    asset = str(report.get("asset", "UNKNOWN")).upper()
+    sentiment = _format_markdown_value(report.get("sentiment"))
+    summary = str(report.get("summary") or "No social summary available.")
+    keywords = report.get("keywords", []) if isinstance(report.get("keywords"), list) else []
+    meta = report.get("meta", {}) if isinstance(report.get("meta"), dict) else {}
+    subreddits = meta.get("subreddits", []) if isinstance(meta.get("subreddits"), list) else []
+
+    lines = [
+        "# Social Retail Sentiment Report",
+        "",
+        "## Sentiment Snapshot",
+        f"- **Asset**: `{asset}`",
+        f"- **Sentiment**: `{sentiment}`",
+        f"- **Summary**: {summary}",
+        "",
+        "## Keywords",
+    ]
+
+    if keywords:
+        lines.extend(f"- `{keyword}`" for keyword in keywords[:5] if isinstance(keyword, str) and keyword)
+    else:
+        lines.append("- No dominant keywords were extracted.")
+
+    lines.extend(
+        [
+            "",
+            "## Coverage",
+            f"- **Source**: `{_format_markdown_value(meta.get('source'))}`",
+            f"- **Window**: `{_format_markdown_value(meta.get('window'))}`",
+            f"- **Posts analyzed**: `{_format_markdown_value(meta.get('post_count'))}`",
+            f"- **Comments analyzed**: `{_format_markdown_value(meta.get('comment_count'))}`",
+            (
+                "- **Subreddits**: "
+                + (", ".join(f"`{item}`" for item in subreddits) if subreddits else "N/A")
+            ),
+        ]
+    )
+
+    return "\n".join(lines)
 
 
 def generate_report(asset: str, run_dir: str) -> SocialBundle:
@@ -52,6 +105,7 @@ def generate_report(asset: str, run_dir: str) -> SocialBundle:
         ),
     )
     report_obj["module"] = "social"
+    report_obj["markdown_report"] = _build_social_markdown(report_obj)
 
     path = out_dir / "social.json"
     write_json(path, report_obj)

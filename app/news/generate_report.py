@@ -36,6 +36,7 @@ class NewsBundle(TypedDict, total=False):
     prediction_insights: str
     sources: List[Dict[str, Any]]
     polymarket_markets: List[Dict[str, Any]]
+    markdown_report: str
     report_path: str
 
 
@@ -84,6 +85,83 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
         except Exception:
             continue
     raise ValueError("No valid JSON object found in model output.")
+
+
+def _format_markdown_value(value: Any) -> str:
+    """Render a compact value for markdown reports."""
+
+    if value is None or value == "":
+        return "N/A"
+    if isinstance(value, float):
+        text = f"{value:.4f}".rstrip("0").rstrip(".")
+        return text if text else "0"
+    return str(value)
+
+
+def _build_news_markdown(report: Dict[str, Any]) -> str:
+    """Build a deterministic markdown view from the structured news report."""
+
+    asset = str(report.get("asset", "UNKNOWN")).upper()
+    bias = _format_markdown_value(report.get("bias"))
+    key_points = report.get("key_points", []) if isinstance(report.get("key_points"), list) else []
+    sources = report.get("sources", []) if isinstance(report.get("sources"), list) else []
+    polymarket_markets = (
+        report.get("polymarket_markets", [])
+        if isinstance(report.get("polymarket_markets"), list)
+        else []
+    )
+    prediction_insights = str(report.get("prediction_insights") or "").strip()
+
+    lines = [
+        "# Macro News Sentiment Report",
+        "",
+        "## Bias Snapshot",
+        f"- **Asset**: `{asset}`",
+        f"- **Bias**: `{bias}`",
+        f"- **Articles analyzed**: `{len(sources)}`",
+    ]
+
+    if prediction_insights:
+        lines.append(f"- **Prediction-market takeaway**: {prediction_insights}")
+
+    lines.extend(["", "## Key Points"])
+    if key_points:
+        lines.extend(f"- {point}" for point in key_points[:6] if isinstance(point, str) and point.strip())
+    else:
+        lines.append("- No key points were extracted.")
+
+    lines.extend(["", "## Recent Sources"])
+    if sources:
+        for item in sources[:5]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "Untitled")
+            source = _format_markdown_value(item.get("source"))
+            published = _format_markdown_value(item.get("published_time"))
+            snippet = str(item.get("snippet") or "").strip()
+            bullet = f"- **{source} | {published}**: {title}"
+            if snippet:
+                bullet += f". Snippet: {snippet}"
+            lines.append(bullet)
+    else:
+        lines.append("- No source articles were available.")
+
+    lines.extend(["", "## Prediction Markets"])
+    if polymarket_markets:
+        for market in polymarket_markets[:3]:
+            if not isinstance(market, dict):
+                continue
+            question = str(market.get("question") or "Unknown market")
+            prob_yes = _format_markdown_value(market.get("probability_yes"))
+            prob_no = _format_markdown_value(market.get("probability_no"))
+            volume = _format_markdown_value(market.get("volume_total"))
+            lines.append(
+                f"- **{question}**: yes `{prob_yes}`, no `{prob_no}`, total volume `{volume}`"
+            )
+    else:
+        lines.append("- No relevant Polymarket contracts were found.")
+
+    return "\n".join(lines)
 
 
 def generate_report(asset: str, run_dir: str) -> NewsBundle:
@@ -177,6 +255,7 @@ def generate_report(asset: str, run_dir: str) -> NewsBundle:
         "sources": sources,
         "polymarket_markets": polymarket_markets.get("markets", []) if polymarket_markets else [],
     }
+    report["markdown_report"] = _build_news_markdown(report)
 
     path = out_dir / "news.json"
     write_json(path, report)

@@ -37,6 +37,24 @@ async def run_analysis_stream(query: str) -> AsyncGenerator[str, None]:
             "quant_analysis": result.get("quant_report_obj", {}),
             "news_sentiment": result.get("news_report_obj", {}),
             "social_sentiment": result.get("social_report_obj", {}),
+            "reports": {
+                "cio": result.get("final_decision", ""),
+                "quant": (
+                    result.get("quant_report_obj", {}).get("markdown_report")
+                    if isinstance(result.get("quant_report_obj"), dict)
+                    else None
+                ),
+                "news": (
+                    result.get("news_report_obj", {}).get("markdown_report")
+                    if isinstance(result.get("news_report_obj"), dict)
+                    else None
+                ),
+                "social": (
+                    result.get("social_report_obj", {}).get("markdown_report")
+                    if isinstance(result.get("social_report_obj"), dict)
+                    else None
+                ),
+            },
         }
 
         # Send completion event
