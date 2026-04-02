@@ -168,10 +168,39 @@ class MCPConnectionManager:
         if handle.cached_tools and not force_refresh:
             return list(handle.cached_tools)
 
-        await self.ensure_server(server_name, force_probe=force_refresh)
-        tools = await self._list_tools_once(handle.config)
-        handle.cached_tools = tools
-        return list(tools)
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            await self.ensure_server(server_name, force_probe=force_refresh or attempt > 0)
+            try:
+                tools = await self._list_tools_once(handle.config)
+                handle.cached_tools = tools
+                handle.last_error = None
+                return list(tools)
+            except Exception as exc:
+                last_error = exc
+                handle.last_error = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "MCP tools/list failed for %s on attempt %d: %s",
+                    server_name,
+                    attempt + 1,
+                    exc,
+                )
+
+                if attempt == 0:
+                    await asyncio.sleep(max(0.2, handle.config.restart_backoff_seconds))
+                    continue
+                if handle.config.managed and attempt == 1:
+                    await self.restart_server(
+                        server_name,
+                        reason="tools/list failed during startup",
+                    )
+                    continue
+                break
+
+        raise RuntimeError(
+            f"MCP server '{server_name}' could not list tools: {last_error}"
+        ) from last_error
 
     async def list_registered_tools(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Aggregate tools across every configured server."""

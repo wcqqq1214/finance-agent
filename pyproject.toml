@@ -50,6 +50,11 @@ venv = ".venv"
 
 [tool.uv]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that exercise integrated services or subprocesses",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"

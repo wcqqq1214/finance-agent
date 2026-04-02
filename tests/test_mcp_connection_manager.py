@@ -77,3 +77,32 @@ async def test_list_registered_tools_aggregates_server_name(monkeypatch, tmp_pat
         {"name": "market_data_tool", "server_name": "market_data"},
         {"name": "news_search_tool", "server_name": "news_search"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_server_tools_retries_before_restart(monkeypatch, tmp_path):
+    manager = MCPConnectionManager(_write_config(tmp_path))
+    attempts = {"count": 0}
+    restart_calls = []
+
+    async def fake_ensure_server(server_name: str, *, force_probe: bool = False) -> None:
+        assert server_name == "market_data"
+
+    async def fake_restart_server(server_name: str, *, reason: str | None = None) -> None:
+        restart_calls.append((server_name, reason))
+
+    async def fake_list_tools_once(config):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("server warming up")
+        return [{"name": "get_us_stock_quote"}]
+
+    monkeypatch.setattr(manager, "ensure_server", fake_ensure_server)
+    monkeypatch.setattr(manager, "restart_server", fake_restart_server)
+    monkeypatch.setattr(manager, "_list_tools_once", fake_list_tools_once)
+
+    tools = await manager.list_server_tools("market_data", force_refresh=True)
+
+    assert tools == [{"name": "get_us_stock_quote"}]
+    assert attempts["count"] == 3
+    assert restart_calls == [("market_data", "tools/list failed during startup")]
