@@ -274,3 +274,43 @@ def test_format_comparison_markdown_includes_requested_symbol_metrics():
     assert "0.6200" in markdown
     assert "48" in markdown
     assert "建议仓位系数" in markdown
+
+
+def test_format_comparison_markdown_event_driven_policy_overrides_add_position_language():
+    report = {
+        "metadata": {
+            "symbol": "NVDA",
+            "date_range": ("2024-01-01", "2026-04-02"),
+            "generated_at": "2026-04-02 20:19:21",
+            "data_points": 559,
+        },
+        "parameters": {"lightgbm": {"objective": "binary"}},
+        "metrics": {
+            "lightgbm": {
+                "mean_auc": 0.5762,
+                "mean_accuracy": 0.5751,
+                "requested_symbol": "NVDA",
+                "requested_symbol_auc": 0.5152,
+                "requested_symbol_accuracy": 0.4667,
+                "requested_symbol_eval_rows": 465,
+            }
+        },
+        "predictions": {
+            "lightgbm": 0.6126,
+            "fusion_score": 0.5,
+            "signal_alignment": "confirmed",
+            "position_multiplier": 0.0,
+            "ml_policy": "event_driven_only",
+        },
+        "feature_importance": {},
+        "signal_filter": {
+            "alignment": "confirmed",
+            "position_multiplier": 0.0,
+            "ml_policy": "event_driven_only",
+        },
+    }
+
+    markdown = model_registry.format_comparison_markdown(report)
+
+    assert "不建议依据 ML 信号加仓" in markdown
+    assert "ML 方向性信号已停用" in markdown

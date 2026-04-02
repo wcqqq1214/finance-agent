@@ -55,6 +55,29 @@ def _format_percent_from_probability(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
+def _probability_signal_label(value: Any) -> str:
+    """Map a probability-like value to a directional Chinese label."""
+
+    if not _is_finite_number(value):
+        return "N/A"
+    probability = float(value)
+    if probability > 0.5:
+        return "看涨"
+    if probability < 0.5:
+        return "看跌"
+    return "中性"
+
+
+def _ml_policy_label(policy: Any) -> str:
+    """Return a readable Chinese label for an ML authority policy."""
+
+    return {
+        "primary_signal": "PRIMARY_SIGNAL（可作为主信号）",
+        "auxiliary_only": "AUXILIARY_ONLY（仅作辅助）",
+        "event_driven_only": "EVENT_DRIVEN_ONLY（停用 ML 方向信号）",
+    }.get(str(policy), "PRIMARY_SIGNAL（可作为主信号）")
+
+
 def _extract_requested_symbol_metrics(metrics: Dict[str, Any], symbol: str | None) -> Dict[str, Any]:
     """Return single-symbol OOS metrics derived from panel evaluation artifacts."""
 
@@ -320,7 +343,12 @@ def generate_comparison_report(
     historical_similarity = results["lightgbm"].get("historical_similarity")
     signal_filter = results["lightgbm"].get("signal_filter")
     if not isinstance(signal_filter, dict):
-        signal_filter = apply_similarity_signal_filter(fusion_score, historical_similarity)
+        signal_filter = apply_similarity_signal_filter(
+            fusion_score,
+            historical_similarity,
+            requested_symbol_auc=lgbm_metrics.get("requested_symbol_auc"),
+            requested_symbol_auc_unavailable=bool(lgbm_metrics.get("requested_symbol_auc_unavailable")),
+        )
 
     feature_importance: Dict[str, Any] = {}
     lgbm_X = results["lightgbm"].get("feature_matrix", X)
@@ -343,6 +371,7 @@ def generate_comparison_report(
             "raw_fusion_score": fusion_score,
             "signal_alignment": signal_filter["alignment"],
             "position_multiplier": float(signal_filter["position_multiplier"]),
+            "ml_policy": signal_filter["ml_policy"],
         },
         "feature_importance": feature_importance,
         "signal_filter": signal_filter,
@@ -448,13 +477,19 @@ def train_all_models(
             lgbm_feature_matrix = lgbm_X
             historical_similarity = None
 
-        signal_filter = apply_similarity_signal_filter(lgbm_pred, historical_similarity)
+        signal_filter = apply_similarity_signal_filter(
+            lgbm_pred,
+            historical_similarity,
+            requested_symbol_auc=lgbm_metrics.get("requested_symbol_auc"),
+            requested_symbol_auc_unavailable=bool(lgbm_metrics.get("requested_symbol_auc_unavailable")),
+        )
         results["lightgbm"] = {
             "model": lgbm_model,
             "metrics": lgbm_metrics,
             "prediction": lgbm_pred,
             "feature_matrix": lgbm_feature_matrix,
             "signal_filter": signal_filter,
+            "ml_policy": signal_filter["ml_policy"],
         }
         if historical_similarity:
             results["lightgbm"]["historical_similarity"] = historical_similarity
@@ -534,8 +569,8 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
     lines.append("|------|------|")
     lightgbm_pred = predictions.get("lightgbm")
     fusion_score = predictions.get("fusion_score")
-    lightgbm_signal = "看涨" if _is_finite_number(lightgbm_pred) and float(lightgbm_pred) > 0.5 else "看跌"
-    composite_signal = "看涨" if _is_finite_number(fusion_score) and float(fusion_score) > 0.5 else "看跌"
+    lightgbm_signal = _probability_signal_label(lightgbm_pred)
+    composite_signal = _probability_signal_label(fusion_score)
     alignment = predictions.get("signal_alignment", "unavailable")
     alignment_label = {
         "confirmed": "方向共振",
@@ -544,6 +579,7 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
         "unavailable": "暂无确认",
     }.get(str(alignment), "暂无确认")
     position_multiplier = predictions.get("position_multiplier")
+    ml_policy = predictions.get("ml_policy", report.get("signal_filter", {}).get("ml_policy"))
     lines.append(f"| LightGBM 概率 | {_format_percent_from_probability(lightgbm_pred)} ({lightgbm_signal if _is_finite_number(lightgbm_pred) else 'N/A'}) |")
     lines.append(f"| 综合信号 | {_format_percent_from_probability(fusion_score)} ({composite_signal if _is_finite_number(fusion_score) else 'N/A'}) |\n")
     if _is_finite_number(position_multiplier):
@@ -553,6 +589,7 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
         )
     else:
         lines.append("当前系统已统一为单一 LightGBM 面板模型，综合信号等同于模型输出。\n")
+    lines.append(f"当前 ML 信号权限为 **{_ml_policy_label(ml_policy)}**。\n")
 
     lines.append("## LightGBM 特征重要性\n")
     top_features = report.get("feature_importance", {}).get("lightgbm", {}).get("top_features", [])
@@ -624,13 +661,22 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
         )
     signal_filter = report.get("signal_filter", {})
     if isinstance(signal_filter, dict):
+        ml_policy = signal_filter.get("ml_policy")
         alignment_label = {
             "confirmed": "方向共振，可适度提高仓位",
             "contradicted": "方向冲突，建议主动降仓",
             "neutral": "方向中性，维持基础仓位",
             "unavailable": "暂无相似度确认，维持基础仓位",
         }.get(str(signal_filter.get("alignment", "unavailable")), "暂无相似度确认，维持基础仓位")
-        lines.append(f"- 相似度双重确认结果：{alignment_label}。")
+        if ml_policy == "event_driven_only":
+            lines.append("- 相似度双重确认结果：方向虽有共振，但已被单票 OOS AUC 风控覆盖，不建议依据 ML 信号加仓。")
+            lines.append("- 当前单票 OOS AUC 偏弱，ML 方向性信号已停用，应由事件/新闻/基本面模块接管。")
+        elif ml_policy == "auxiliary_only":
+            lines.append(f"- 相似度双重确认结果：{alignment_label}。")
+            lines.append("- 当前单票 OOS AUC 仅达辅助级别，ML 结果只能作为辅助手段，不能单独触发交易。")
+        else:
+            lines.append(f"- 相似度双重确认结果：{alignment_label}。")
+            lines.append("- 当前单票 OOS AUC 达到主信号标准，ML 概率可作为主要参考之一。")
     if _is_finite_number(mean_auc):
         if float(mean_auc) >= 0.60:
             lines.append("- 模型区分度较强，可以把概率信号作为优先参考。")
@@ -657,7 +703,7 @@ def format_predictions_for_agent(results: Dict[str, Dict]) -> str:
     lines = ["## 量化模型预测汇总\n"]
     lines.append("### LIGHTGBM 分析师")
     if _is_finite_number(pred):
-        pred_text = f"{float(pred):.2%} {'看涨' if float(pred) > 0.5 else '看跌'}"
+        pred_text = f"{float(pred):.2%} {_probability_signal_label(pred)}"
     else:
         pred_text = "N/A"
     lines.append(f"- **预测概率**: {pred_text}")
@@ -665,7 +711,12 @@ def format_predictions_for_agent(results: Dict[str, Dict]) -> str:
     lines.append(f"- **模型准确率**: {_format_float(metrics.get('mean_accuracy'))}")
     signal_filter = result.get("signal_filter")
     if not isinstance(signal_filter, dict):
-        signal_filter = apply_similarity_signal_filter(pred, result.get("historical_similarity"))
+        signal_filter = apply_similarity_signal_filter(
+            pred,
+            result.get("historical_similarity"),
+            requested_symbol_auc=metrics.get("requested_symbol_auc"),
+            requested_symbol_auc_unavailable=bool(metrics.get("requested_symbol_auc_unavailable")),
+        )
     if isinstance(signal_filter, dict):
         adjusted_probability = signal_filter.get("adjusted_probability")
         alignment_label = {
@@ -678,6 +729,7 @@ def format_predictions_for_agent(results: Dict[str, Dict]) -> str:
             lines.append(
                 f"- **最终交易信号**: {float(adjusted_probability):.2%}，{alignment_label}，建议仓位系数 {float(signal_filter.get('position_multiplier', 1.0)):.2f}x"
             )
+        lines.append(f"- **ML 信号权限**: {_ml_policy_label(signal_filter.get('ml_policy'))}")
     requested_symbol = metrics.get("requested_symbol")
     if _is_finite_number(metrics.get("requested_symbol_auc")) and requested_symbol:
         lines.append(

@@ -73,6 +73,26 @@ def _format_feature_value(value: float | str) -> str:
     return value
 
 
+def _probability_direction_label(probability: float) -> str:
+    """Return a directional label for a probability around the 0.5 boundary."""
+
+    if probability > 0.5:
+        return "看涨"
+    if probability < 0.5:
+        return "看跌"
+    return "中性"
+
+
+def _ml_policy_label(policy: Any) -> str:
+    """Return a human-readable Chinese label for the ML authority policy."""
+
+    return {
+        "primary_signal": "PRIMARY_SIGNAL（可作为主信号）",
+        "auxiliary_only": "AUXILIARY_ONLY（仅作辅助）",
+        "event_driven_only": "EVENT_DRIVEN_ONLY（停用 ML 方向信号）",
+    }.get(str(policy), "PRIMARY_SIGNAL（可作为主信号）")
+
+
 def explain_latest_sample(
     model: LGBMClassifier,
     X: pd.DataFrame,
@@ -189,7 +209,12 @@ def build_markdown_report(
     """
 
     probability_pct = prob_up * 100.0
-    signal_filter = signal_filter or apply_similarity_signal_filter(prob_up, historical_similarity)
+    signal_filter = signal_filter or apply_similarity_signal_filter(
+        prob_up,
+        historical_similarity,
+        requested_symbol_auc=metrics.get("requested_symbol_auc"),
+        requested_symbol_auc_unavailable=bool(metrics.get("requested_symbol_auc_unavailable")),
+    )
     final_prob_pct = float(signal_filter["adjusted_probability"]) * 100.0
     acc = metrics.get("mean_accuracy", metrics.get("accuracy"))
     auc = metrics.get("mean_auc", metrics.get("auc"))
@@ -236,11 +261,24 @@ def build_markdown_report(
         "neutral": "方向中性",
         "unavailable": "暂无相似度确认",
     }.get(signal_filter["alignment"], "暂无相似度确认")
-    final_direction = "看涨" if float(signal_filter["adjusted_probability"]) >= 0.5 else "看跌"
+    final_direction = _probability_direction_label(float(signal_filter["adjusted_probability"]))
     lines.append(
         f"- **最终交易信号**：相似度过滤后概率约 {final_prob_pct:.1f}% ，方向为 **{final_direction}**；"
         f"当前属于 **{alignment_label}**，建议仓位系数约 **{float(signal_filter['position_multiplier']):.2f}x**。"
     )
+    ml_policy = signal_filter.get("ml_policy")
+    if ml_policy == "event_driven_only":
+        lines.append(
+            f"- **ML 信号权限**：{_ml_policy_label(ml_policy)}，当前单票 OOS AUC 偏弱，"
+            "机器学习方向性信号已停用，应由事件/新闻/基本面模块接管。"
+        )
+    elif ml_policy == "auxiliary_only":
+        lines.append(
+            f"- **ML 信号权限**：{_ml_policy_label(ml_policy)}，当前单票 OOS AUC 仅支持辅助使用，"
+            "不能仅凭 ML 概率直接开仓。"
+        )
+    else:
+        lines.append(f"- **ML 信号权限**：{_ml_policy_label(ml_policy)}。")
     requested_symbol = str(metrics.get("requested_symbol", ticker)).upper()
     requested_symbol_auc = metrics.get("requested_symbol_auc")
     requested_symbol_accuracy = metrics.get("requested_symbol_accuracy")

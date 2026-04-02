@@ -42,7 +42,11 @@ class MlQuantResult(TypedDict, total=False):
             occurs.
         prediction: Discrete label derived from ``prob_up``.
         final_prob_up: Probability after the similarity-confirmation filter.
-        final_prediction: Final discrete label after the similarity filter.
+        final_prediction: Final label after the similarity filter. When the
+            single-symbol OOS AUC is too weak, this becomes
+            ``"event_driven_only"`` to disable ML-led directionality.
+        ml_policy: Authority level assigned to the ML signal after evaluating
+            single-symbol OOS AUC.
         signal_filter: Compact description of whether historical similarity
             confirmed or contradicted the raw model direction.
         metrics: Dictionary with basic hold-out evaluation metrics such as
@@ -65,6 +69,7 @@ class MlQuantResult(TypedDict, total=False):
     prediction: str
     final_prob_up: float
     final_prediction: str
+    ml_policy: str
     signal_filter: SignalFilterSummary
     metrics: Dict[str, Any]
     shap_insights: ShapSummary
@@ -146,8 +151,6 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
             similarity_query,
             target_col=PANEL_TARGET_COL,
         )
-        signal_filter = apply_similarity_signal_filter(prob_up, historical_similarity)
-
         metrics = cast(Dict[str, Any], dict(metrics))
         metrics["n_symbols"] = int(train_df["symbol"].nunique())
         metrics["text_features"] = metrics.get("text_svd_components", 0)
@@ -166,6 +169,12 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
             metrics["requested_symbol_auc_unavailable"] = normalized in {
                 str(item).strip().upper() for item in per_ticker_auc_unavailable
             }
+        signal_filter = apply_similarity_signal_filter(
+            prob_up,
+            historical_similarity,
+            requested_symbol_auc=metrics.get("requested_symbol_auc"),
+            requested_symbol_auc_unavailable=bool(metrics.get("requested_symbol_auc_unavailable")),
+        )
         markdown = build_markdown_report(
             ticker=normalized,
             prob_up=prob_up,
@@ -188,12 +197,17 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
 
     prediction = "up_big_move" if prob_up >= 0.5 else "no_up_big_move"
     final_prob_up = float(signal_filter["adjusted_probability"])
-    final_prediction = "up_big_move" if final_prob_up >= 0.5 else "no_up_big_move"
+    ml_policy = str(signal_filter["ml_policy"])
+    if ml_policy == "event_driven_only":
+        final_prediction = "event_driven_only"
+    else:
+        final_prediction = "up_big_move" if final_prob_up > 0.5 else "no_up_big_move"
 
     base["prob_up"] = float(prob_up)
     base["prediction"] = prediction
     base["final_prob_up"] = final_prob_up
     base["final_prediction"] = final_prediction
+    base["ml_policy"] = ml_policy
     base["signal_filter"] = signal_filter
     base["metrics"] = cast(Dict[str, Any], metrics)
     base["shap_insights"] = shap_summary
@@ -251,7 +265,11 @@ def run_ml_quant_analysis(ticker: str) -> MlQuantResult:
           ``\"no_up_big_move\"``.
         - ``final_prob_up``: Similarity-filtered probability used for the final
           trading signal.
-        - ``final_prediction``: Final label after the similarity filter.
+        - ``final_prediction``: Final label after the similarity filter. May be
+          ``\"event_driven_only\"`` when ML directionality is disabled by
+          weak single-symbol OOS AUC.
+        - ``ml_policy``: One of ``\"primary_signal\"``,
+          ``\"auxiliary_only\"``, or ``\"event_driven_only\"``.
         - ``signal_filter``: Whether historical similarity confirmed or
           contradicted the raw model direction, plus a suggested position
           multiplier.
