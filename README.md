@@ -4,16 +4,15 @@
 
 ---
 
-A multi-agent financial analysis system built with Python 3.13, LangChain, and LangGraph. Uses a Fan-out / Fan-in topology: Quant, News, and Social agents run in parallel, then a CIO agent synthesizes a final investment recommendation. The repo also includes a FastAPI backend, a Next.js frontend, per-run report artifacts, and optional Redis/ARQ background job support.
+A multi-agent financial analysis system built with Python 3.13, LangChain, and LangGraph. Uses a Fan-out / Fan-in topology — Quant, News, and Social agents run in parallel, then a CIO agent synthesizes a final investment recommendation.
 
 ## Features
 
 - **Multi-Agent Architecture**: Parallel Quant / News / Social agents with CIO synthesis
-- **Stock + Crypto Workspace**: Stock quotes from MCP-backed services, crypto quotes from a hot cache, and OHLC chart APIs for both asset classes
-- **Readable Report Bundles**: Each run writes `report.json`, agent-specific JSON, and human-readable markdown into `data/reports/{run_id}_{asset}/`
+- **Market Data**: Real-time quotes and historical data with technical indicators (SMA, MACD, Bollinger Bands)
 - **News Intelligence**: Multi-source aggregation (DuckDuckGo, Tavily) with sentiment analysis
 - **Social Sentiment**: Reddit discussion analysis for retail investor sentiment
-- **ML Signal Governance**: LightGBM models with SHAP explainability, per-symbol OOS metrics, and similarity-aware signal filtering
+- **ML Predictions**: LightGBM models with SHAP explainability and time-series cross-validation
 - **Event Memory (RAG)**: ChromaDB-powered semantic search over historical market events
 
 ## Tech Stack
@@ -23,9 +22,6 @@ A multi-agent financial analysis system built with Python 3.13, LangChain, and L
 - **ML / Data**: `pandas`, `numpy`, `lightgbm`, `shap`, `scikit-learn`, `pandas-ta`
 - **Data Sources**: `yfinance`, `tavily-python`, `ddgs` (DuckDuckGo) — all via MCP servers
 - **Vector DB**: `chromadb`, `langchain-chroma`
-- **Backend**: `fastapi`, `uvicorn`, `httpx`, `apscheduler`
-- **Queue / Cache**: `redis`, `arq` (optional)
-- **Frontend**: Next.js 16, React 19, Tailwind CSS 4, shadcn/ui
 - **Config**: `python-dotenv`
 
 ## Quick Start
@@ -61,24 +57,13 @@ Edit `.env` and fill in your API keys:
 | Key | Source | Required |
 |-----|--------|----------|
 | `CLAUDE_API_KEY` | [Anthropic Console](https://console.anthropic.com/) | Yes |
-| `MINIMAX_API_KEY` | [MiniMax Platform](https://www.minimaxi.com/platform) | Yes |
+| `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/) | Yes (embeddings) |
 | `TAVILY_API_KEY` | [Tavily](https://tavily.com/) | Yes |
 | `POLYGON_API_KEY` | [Polygon.io](https://polygon.io/) | Optional |
-| `OKX_DEMO_API_KEY` / `OKX_DEMO_SECRET_KEY` / `OKX_DEMO_PASSPHRASE` | OKX | Optional |
 
-Common optional settings: `CLAUDE_BASE_URL`, `CLAUDE_MODEL`, `MINIMAX_BASE_URL`, `MINIMAX_EMBEDDING_MODEL`, `MCP_MARKET_DATA_URL`, `MCP_NEWS_SEARCH_URL`, `USE_PROXY`, `REDIS_ENABLED`, `REDIS_URL`, `NEXT_PUBLIC_API_URL`.
+Optional settings: `LLM_PROVIDER` (`claude` / `openai`, default `claude`), `LLM_TEMPERATURE` (default `0.0`), `EMBEDDING_PROVIDER` (default `openai`).
 
-The settings API/UI still exposes an `OPENAI_API_KEY` field for compatibility, but the current embedding pipeline reads `MINIMAX_*` values from `.env`.
-
-### 4. Optional: start Redis for background jobs
-
-```bash
-docker compose up -d
-```
-
-If Redis is unavailable, the backend falls back to in-process execution for scheduled/background work.
-
-### 5. Start all services
+### 4. Start all services
 
 ```bash
 bash scripts/startup/start_all.sh
@@ -99,14 +84,11 @@ bash scripts/startup/stop_all.sh
 
 | Service | URL |
 |---------|-----|
-| Frontend (Home) | http://localhost:3000 |
-| Frontend Reports | http://localhost:3000/reports |
-| Frontend System | http://localhost:3000/system |
-| Frontend Settings | http://localhost:3000/settings |
+| Frontend | http://localhost:3000 |
 | API | http://localhost:8080 |
 | API Docs (Swagger) | http://localhost:8080/docs |
 
-Use the home page to switch between stock and crypto watchlists, inspect OHLC charts, and submit analysis queries. Analysis results stream back through SSE and every completed run is saved to `data/reports/{run_id}_{asset}/`.
+Submit a stock analysis query through the web UI. Results stream in real time via SSE and are saved to `data/reports/{run_id}_{asset}/`.
 
 ## Scripts Reference
 
@@ -126,7 +108,6 @@ Use the home page to switch between stock and crypto watchlists, inspect OHLC ch
 | Script | Description |
 |--------|-------------|
 | `run_ml_quant_metrics.py` | Train and evaluate LightGBM models |
-| `compare_models.py` | Generate a markdown ML evaluation report for a single symbol |
 | `batch_process.py` | Batch analysis across multiple tickers |
 | `process_layer1.py` | Run LLM-based news relevance filtering |
 
@@ -153,14 +134,6 @@ Use the home page to switch between stock and crypto watchlists, inspect OHLC ch
 |--------|-------------|
 | `manual_run.py` | Interactive CLI for agent queries |
 | `test_dataflows.py` | Test data provider connections |
-
-### Background Jobs
-
-```bash
-uv run arq app.tasks.WorkerSettings
-```
-
-Runs the optional ARQ worker for Redis-backed background jobs such as scheduled OHLC updates.
 
 ## MCP Servers
 
@@ -211,31 +184,18 @@ ps aux | grep mcp_servers
 ### FastAPI Backend
 - `app/api/main.py` — Application entry point
 - `app/api/routes/analyze.py` — Analysis endpoints
-- `app/api/routes/reports.py` — Saved report listing and detail endpoints
-- `app/api/routes/system.py` — MCP health/status endpoint
-- `app/api/routes/settings.py` — Runtime settings endpoints
 - `app/api/routes/stocks.py` — Stock data endpoints
-- `app/api/routes/ohlc.py` — Historical stock OHLC + metadata endpoints
 - `app/api/routes/crypto.py` — Cryptocurrency endpoints
-- `app/api/routes/crypto_klines.py` — Merged crypto hot/cold K-line endpoint
 - `app/api/routes/history.py` — Agent execution history
 - `app/api/routes/okx.py` — OKX exchange integration
 - `app/database/` — SQLite schema, agent history, OHLC storage
 
 ### Machine Learning & Quant
 - `app/ml/model_trainer.py` — LightGBM training with time-series CV
-- `app/ml/model_registry.py` — Model orchestration, comparison reports, scoring helpers
 - `app/ml/feature_engine.py` — Feature engineering pipeline
 - `app/ml/features.py` — Technical indicator features
-- `app/ml/signal_filter.py` — Similarity-aware signal governance
-- `app/ml/similarity.py` — Historical similarity search for signals
-- `app/ml/text_features.py` — Text-derived ML features
 - `app/ml/shap_explainer.py` — SHAP explainability
-
-### Background Jobs & Realtime Data
-- `app/services/realtime_agent.py` — Crypto hot-cache warmup and refresh loop
-- `app/tasks/update_ohlc.py` — Scheduled daily OHLC update task
-- `app/tasks/worker_settings.py` — ARQ worker configuration
+- `app/ml/generate_report.py` — ML prediction reports
 
 ### RAG & Event Memory
 - `app/rag/build_event_memory.py` — Build ChromaDB event memory
@@ -251,7 +211,6 @@ ps aux | grep mcp_servers
 ### Frontend (Next.js)
 - `frontend/src/app/` — Next.js app directory
 - `frontend/src/components/` — React components
-- `frontend/src/lib/api.ts` — Typed frontend API client
 - `frontend/tsconfig.json` — TypeScript strict mode enabled
 - `frontend/eslint.config.mjs` — ESLint with TypeScript rules (no explicit `any`)
 
@@ -310,11 +269,6 @@ pnpm lint                     # run ESLint
 pnpm lint:fix                 # auto-fix ESLint issues
 pnpm type-check               # TypeScript type checking
 ```
-
-## Additional Docs
-
-- [docs/PROXY_CONFIGURATION.md](docs/PROXY_CONFIGURATION.md) — proxy setup for WSL2 / Linux / macOS / Windows
-- [docs/okx-api-guide.md](docs/okx-api-guide.md) — OKX API configuration and endpoint guide
 
 ## Contributing
 
