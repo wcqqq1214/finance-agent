@@ -8,11 +8,22 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+DEFAULT_TICKER_CATALOG = [
+    ("AAPL", "Apple Inc.", "consumer_ecosystem"),
+    ("MSFT", "Microsoft Corporation", "cloud_enterprise_ai"),
+    ("GOOGL", "Alphabet Inc.", "internet_ad_platform"),
+    ("AMZN", "Amazon.com Inc.", "cloud_enterprise_ai"),
+    ("META", "Meta Platforms Inc.", "internet_ad_platform"),
+    ("NVDA", "NVIDIA Corporation", "ai_compute_semis"),
+    ("TSLA", "Tesla Inc.", "ev_autonomy_high_beta"),
+]
+
 # Database schema with alignment and pipeline tables
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickers (
     symbol        TEXT PRIMARY KEY,
     name          TEXT,
+    peer_group    TEXT,
     last_ohlc_fetch   TEXT,
     last_news_fetch   TEXT
 );
@@ -142,29 +153,79 @@ def init_db(db_path: Optional[Path] = None) -> None:
     """
     conn = get_conn(db_path)
     conn.executescript(SCHEMA)
-
-    # Insert Magnificent Seven tickers if not exists
-    mag_seven = [
-        ("AAPL", "Apple Inc."),
-        ("MSFT", "Microsoft Corporation"),
-        ("GOOGL", "Alphabet Inc."),
-        ("AMZN", "Amazon.com Inc."),
-        ("META", "Meta Platforms Inc."),
-        ("NVDA", "NVIDIA Corporation"),
-        ("TSLA", "Tesla Inc."),
-    ]
-
-    for symbol, name in mag_seven:
-        conn.execute(
-            "INSERT OR IGNORE INTO tickers (symbol, name) VALUES (?, ?)",
-            (symbol, name),
-        )
+    _ensure_ticker_peer_group_column(conn)
+    _seed_default_tickers(conn)
 
     conn.commit()
     conn.close()
 
     path = db_path or DEFAULT_DB_PATH
     print(f"Database initialized at {path}")
+
+
+def _table_has_column(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    """Return whether a SQLite table currently contains the named column."""
+
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(str(row["name"]) == column_name for row in rows)
+
+
+def _ensure_ticker_peer_group_column(conn: sqlite3.Connection) -> None:
+    """Apply a lightweight migration for older databases missing peer_group."""
+
+    if not _table_has_column(conn, "tickers", "peer_group"):
+        conn.execute("ALTER TABLE tickers ADD COLUMN peer_group TEXT")
+
+
+def _seed_default_tickers(conn: sqlite3.Connection) -> None:
+    """Seed or backfill the default ticker catalog and peer-group metadata."""
+
+    for symbol, name, peer_group in DEFAULT_TICKER_CATALOG:
+        conn.execute(
+            "INSERT OR IGNORE INTO tickers (symbol, name, peer_group) VALUES (?, ?, ?)",
+            (symbol, name, peer_group),
+        )
+        conn.execute(
+            """
+            UPDATE tickers
+            SET name = CASE
+                    WHEN name IS NULL OR TRIM(name) = '' THEN ?
+                    ELSE name
+                END,
+                peer_group = CASE
+                    WHEN peer_group IS NULL OR TRIM(peer_group) = '' THEN ?
+                    ELSE peer_group
+                END
+            WHERE symbol = ?
+            """,
+            (name, peer_group, symbol),
+        )
+
+
+def get_ticker_peer_groups(db_path: Optional[Path] = None) -> dict[str, str]:
+    """Return ticker -> peer_group mappings from the metadata table."""
+
+    conn = get_conn(db_path)
+    try:
+        if not _table_has_column(conn, "tickers", "peer_group"):
+            return {}
+
+        rows = conn.execute(
+            """
+            SELECT symbol, peer_group
+            FROM tickers
+            WHERE symbol IS NOT NULL
+              AND peer_group IS NOT NULL
+              AND TRIM(peer_group) <> ''
+            """
+        ).fetchall()
+        return {
+            str(row["symbol"]).strip().upper(): str(row["peer_group"]).strip()
+            for row in rows
+            if row["symbol"] and row["peer_group"]
+        }
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

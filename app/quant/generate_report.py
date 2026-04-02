@@ -136,9 +136,9 @@ def generate_report(asset: str, run_dir: str) -> QuantBundle:
         ml_quant = cast(Dict[str, Any], ml_quant_raw if isinstance(ml_quant_raw, dict) else {})
     except Exception as exc:
         ml_quant = {
-            "model": "lightgbm",
-            "target": "next_day_direction",
-            "data_source": "yfinance_direct",
+            "model": "lightgbm_panel",
+            "target": "future_3d_up_big_move_gt_2pct_panel",
+            "data_source": "sqlite_panel_db",
             "error": f"Failed to run ML quant analysis: {type(exc).__name__}: {exc}",
         }
 

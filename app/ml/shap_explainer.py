@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import warnings
-from typing import Dict, List, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 import numpy as np
 import pandas as pd
 import shap
 from lightgbm import LGBMClassifier
 
+from app.ml.similarity import HistoricalSimilaritySummary
+
 
 class ShapFeatureImpact(TypedDict):
     """Single feature impact entry used in SHAP summaries."""
 
     feature: str
-    value: float
+    value: float | str
     shap: float
 
 
@@ -52,6 +54,22 @@ def _select_class_shap_values(
     if arr.ndim == 1:
         return arr
     raise ValueError("Unexpected SHAP values shape; expected (1, n_features) or (n_features,).")
+
+
+def _serialize_feature_value(value: Any) -> float | str:
+    """Serialize a feature value for JSON/report output."""
+
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    return str(value)
+
+
+def _format_feature_value(value: float | str) -> str:
+    """Render numeric and categorical feature values consistently."""
+
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return value
 
 
 def explain_latest_sample(
@@ -109,7 +127,7 @@ def explain_latest_sample(
         impacts.append(
             ShapFeatureImpact(
                 feature=name,
-                value=float(val),
+                value=_serialize_feature_value(val),
                 shap=float(sv),
             )
         )
@@ -135,8 +153,12 @@ def explain_latest_sample(
 def build_markdown_report(
     ticker: str,
     prob_up: float,
-    metrics: Dict[str, float | str],
+    metrics: Dict[str, Any],
     shap_summary: ShapSummary,
+    historical_similarity: HistoricalSimilaritySummary | None = None,
+    *,
+    target_label: str = "下一交易日上涨",
+    model_label: str = "LightGBM",
 ) -> str:
     """Render a human-readable Chinese Markdown report for the latest sample.
 
@@ -144,18 +166,20 @@ def build_markdown_report(
     and humans. It intentionally stays concise while still exposing the key
     model diagnostics:
 
-    - predicted next-day up-move probability;
+    - predicted target-event probability;
     - simple hold-out metrics (accuracy and AUC); and
     - the top positive and negative SHAP drivers.
 
     Args:
         ticker: Asset symbol (for example, ``\"BTC-USD\"`` or ``\"NVDA\"``).
-        prob_up: Model-estimated probability that the next day's return is
+        prob_up: Model-estimated probability that the target event is
             positive.
         metrics: Dictionary returned by :func:`train_lightgbm`, expected to
             include at least ``accuracy`` and ``auc``.
         shap_summary: Structured SHAP explanation from
             :func:`explain_latest_sample`.
+        target_label: Human-readable target description shown in the report.
+        model_label: Display name of the model shown in the report header.
 
     Returns:
         A Markdown string written in Chinese that explains the model's view on
@@ -167,23 +191,25 @@ def build_markdown_report(
     auc = metrics.get("mean_auc", metrics.get("auc"))
     acc_str = f"{acc:.3f}" if isinstance(acc, (float, int)) else "N/A"
     auc_str = f"{auc:.3f}" if isinstance(auc, (float, int)) else "N/A"
-    validation_note = (
-        "5-fold TimeSeriesSplit"
-        if "TimeSeriesSplit" in str(metrics.get("train_test_split", ""))
-        else "Hold-out"
-    )
+    split_label = str(metrics.get("train_test_split", ""))
+    if "PanelTimeSeriesSplit" in split_label:
+        validation_note = "5-fold PanelTimeSeriesSplit"
+    elif "TimeSeriesSplit" in split_label:
+        validation_note = "5-fold TimeSeriesSplit"
+    else:
+        validation_note = "Hold-out"
 
     pos_lines: List[str] = []
     for imp in shap_summary.get("top_positive", []) or []:
         pos_lines.append(
-            f"- **{imp['feature']}** 当前值约为 `{imp['value']:.4f}`，"
+            f"- **{imp['feature']}** 当前值约为 `{_format_feature_value(imp['value'])}`，"
             f"对预测方向提供正向贡献 (SHAP ≈ +{abs(imp['shap']):.4f})。"
         )
 
     neg_lines: List[str] = []
     for imp in shap_summary.get("top_negative", []) or []:
         neg_lines.append(
-            f"- **{imp['feature']}** 当前值约为 `{imp['value']:.4f}`，"
+            f"- **{imp['feature']}** 当前值约为 `{_format_feature_value(imp['value'])}`，"
             f"对预测方向形成压制 (SHAP ≈ -{abs(imp['shap']):.4f})。"
         )
 
@@ -191,10 +217,10 @@ def build_markdown_report(
     negative_block = "\n".join(neg_lines) if neg_lines else "- 暂无显著压制特征。"
 
     lines: List[str] = []
-    lines.append(f"【LightGBM 量化预测报告】标的：`{ticker.upper()}`")
+    lines.append(f"【{model_label} 量化预测报告】标的：`{ticker.upper()}`")
     lines.append("")
     lines.append(
-        f"- **模型结论**：在最新可用数据下，模型估计 **下一交易日上涨概率约为 {probability_pct:.1f}%**。"
+        f"- **模型结论**：在最新可用数据下，模型估计 **{target_label} 的概率约为 {probability_pct:.1f}%**。"
     )
     lines.append(
         f"- **历史表现（{validation_note}）**：平均 Accuracy ≈ {acc_str}，AUC ≈ {auc_str} "
@@ -208,5 +234,52 @@ def build_markdown_report(
     lines.append("### 核心风险与压制因素（Top 负向特征）")
     lines.append("")
     lines.append(negative_block)
+
+    if historical_similarity and historical_similarity.get("n_matches", 0) > 0:
+        avg_sim = float(historical_similarity.get("avg_similarity", 0.0)) * 100.0
+        avg_ret = float(historical_similarity.get("avg_future_return_3d", 0.0)) * 100.0
+        hit_rate = float(historical_similarity.get("target_hit_rate", 0.0)) * 100.0
+        positive_rate = float(historical_similarity.get("positive_rate", 0.0)) * 100.0
+        same_symbol_matches = int(historical_similarity.get("same_symbol_matches", 0))
+        peer_group_matches = int(historical_similarity.get("peer_group_matches", 0))
+        market_matches = int(historical_similarity.get("market_matches", 0))
+        lines.append("")
+        lines.append("### 历史相似阶段")
+        lines.append("")
+        lines.append(
+            f"- 系统检索到 **{historical_similarity.get('n_matches', 0)} 个** 高相似历史窗口，"
+            f"平均相似度约 **{avg_sim:.1f}%**。"
+        )
+        if same_symbol_matches or peer_group_matches or market_matches:
+            lines.append(
+                f"- 匹配策略采用 **同股票优先、peer group 次优先、全市场兜底**："
+                f"同股票样本 {same_symbol_matches} 个，"
+                f"peer group 样本 {peer_group_matches} 个，"
+                f"全市场补充样本 {market_matches} 个。"
+            )
+        lines.append(
+            f"- 这些相似阶段在随后 {historical_similarity.get('horizon_days', 3)} 个交易日的"
+            f"平均收益约为 **{avg_ret:+.2f}%**，"
+            f"正收益占比约 **{positive_rate:.1f}%**，"
+            f"上涨异动命中率约 **{hit_rate:.1f}%**。"
+        )
+
+        top_matches = historical_similarity.get("matches", [])[:3]
+        if top_matches:
+            lines.append("")
+            for match in top_matches:
+                ret_pct = float(match.get("future_return_3d", 0.0)) * 100.0
+                scope_label = {
+                    "same_symbol": "同股票",
+                    "peer_group": "peer group",
+                    "market": "全市场",
+                }.get(str(match.get("scope", "market")), "全市场")
+                lines.append(
+                    f"- `{match.get('symbol', '')}` 在 `{match.get('start_date', '')} ~ {match.get('end_date', '')}`"
+                    f" 的窗口与当前最接近"
+                    f"（{scope_label}）"
+                    f"，相似度 **{float(match.get('similarity', 0.0)) * 100.0:.1f}%**，"
+                    f"随后 3 日收益 **{ret_pct:+.2f}%**。"
+                )
 
     return "\n".join(lines)

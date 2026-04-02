@@ -5,15 +5,24 @@ from typing import Any, Dict, TypedDict, cast
 
 from langchain_core.tools import tool
 
-from app.ml.feature_engine import build_dataset, load_ohlcv_with_macro
-from app.ml.model_trainer import predict_proba_latest, train_lightgbm
+from app.ml.features import PANEL_FEATURE_COLS, TEXT_BLOB_COL, build_panel_features
+from app.ml.model_trainer import predict_proba_latest, train_lightgbm_panel_with_text
 from app.ml.shap_explainer import (
     ShapSummary,
     build_markdown_report,
     explain_latest_sample,
 )
+from app.ml.similarity import (
+    HistoricalSimilaritySummary,
+    find_similar_historical_periods,
+)
+from app.ml.text_features import transform_text_svd_features
 
 logger = logging.getLogger(__name__)
+
+PANEL_TARGET_COL = "target_up_big_move_t3"
+PANEL_TARGET_NAME = "future_3d_up_big_move_gt_2pct_panel"
+PANEL_TARGET_LABEL = "未来 3 个交易日出现超过 2% 的上涨异动"
 
 
 class MlQuantResult(TypedDict, total=False):
@@ -25,15 +34,12 @@ class MlQuantResult(TypedDict, total=False):
     Attributes:
         model: Short identifier for the underlying model family (for example,
             ``\"lightgbm\"``).
-        target: Name of the prediction target (e.g. ``\"next_3d_direction_filtered\"``
-            for 3-day smoothed direction with threshold filter).
+        target: Name of the prediction target.
         data_source: Identifier of the market data source. For the current
-            implementation this is ``\"yfinance_direct\"`` to distinguish it
-            from any MCP-based fetchers.
-        prob_up: Estimated probability that the next trading day's close is
-            higher than today's close.
-        prediction: Discrete direction label derived from ``prob_up``, one of
-            ``\"up\"`` or ``\"down\"``.
+            implementation this is ``\"sqlite_panel_db\"``.
+        prob_up: Estimated probability that the configured upside-event target
+            occurs.
+        prediction: Discrete label derived from ``prob_up``.
         metrics: Dictionary with basic hold-out evaluation metrics such as
             accuracy and AUC.
         shap_insights: Compact SHAP summary as returned by
@@ -41,6 +47,8 @@ class MlQuantResult(TypedDict, total=False):
             negative feature contributions.
         markdown_report: Human-readable Chinese Markdown report summarizing
             the model's view on the latest market state.
+        historical_similarity: Historical analog summary derived from panel
+            feature cosine similarity search over recent windows.
         error: Optional human-readable error message if the pipeline failed
             before producing a meaningful prediction.
     """
@@ -53,6 +61,7 @@ class MlQuantResult(TypedDict, total=False):
     metrics: Dict[str, Any]
     shap_insights: ShapSummary
     markdown_report: str
+    historical_similarity: HistoricalSimilaritySummary
     error: str
 
 
@@ -66,9 +75,9 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
 
     normalized = (ticker or "").strip().upper()
     base: MlQuantResult = MlQuantResult(
-        model="lightgbm",
-        target="next_3d_direction_filtered",
-        data_source="yfinance_direct",
+        model="lightgbm_panel",
+        target=PANEL_TARGET_NAME,
+        data_source="sqlite_panel_db",
     )
 
     if not normalized:
@@ -78,89 +87,150 @@ def _run_ml_quant_analysis_impl(ticker: str) -> MlQuantResult:
         return base
 
     try:
-        df = load_ohlcv_with_macro(normalized, period_years=5)
-        X, y = build_dataset(df)  # noqa: N806
-        model, metrics = train_lightgbm(X, y)
-        prob_up = predict_proba_latest(model, X)
-        shap_summary = explain_latest_sample(model, X)
+        panel = build_panel_features()
+        if panel.empty:
+            raise ValueError("Panel dataset is empty. Build OHLC/news features first.")
+
+        available_symbols = sorted(panel["symbol"].astype(str).unique().tolist())
+        if normalized not in available_symbols:
+            raise ValueError(
+                f"Ticker {normalized!r} is not available in panel universe: {available_symbols}"
+            )
+
+        train_df = panel.dropna(subset=[PANEL_TARGET_COL]).copy()
+        if train_df.empty:
+            raise ValueError(f"No labeled training rows available for target {PANEL_TARGET_COL!r}.")
+
+        X_train = train_df[PANEL_FEATURE_COLS]
+        y_train = train_df[PANEL_TARGET_COL].astype(int)
+        trade_dates = train_df["trade_date"]
+        model, metrics, text_artifacts, train_feature_matrix = train_lightgbm_panel_with_text(
+            X_train,
+            y_train,
+            trade_dates,
+            train_df[TEXT_BLOB_COL],
+            categorical_features=["symbol"],
+        )
+
+        latest_rows = panel.loc[panel["symbol"] == normalized].sort_values("trade_date")
+        if latest_rows.empty:
+            raise ValueError(f"No feature rows available for {normalized!r}.")
+
+        latest_feature_rows = latest_rows[PANEL_FEATURE_COLS].reset_index(drop=True)
+        latest_text_features = transform_text_svd_features(latest_rows[TEXT_BLOB_COL], text_artifacts)
+        latest_feature_rows = latest_feature_rows.join(latest_text_features.reset_index(drop=True))
+        latest_X = latest_feature_rows.tail(1)
+        prob_up = predict_proba_latest(model, latest_X)
+        shap_summary = explain_latest_sample(model, latest_X)
+
+        similarity_history = (
+            train_df[["symbol", "trade_date", "close", PANEL_TARGET_COL]]
+            .reset_index(drop=True)
+            .join(train_feature_matrix.drop(columns=["symbol"], errors="ignore").reset_index(drop=True))
+        )
+        similarity_query = (
+            latest_rows[["symbol", "trade_date", "close"]]
+            .reset_index(drop=True)
+            .join(latest_feature_rows.drop(columns=["symbol"], errors="ignore").reset_index(drop=True))
+        )
+        historical_similarity = find_similar_historical_periods(
+            similarity_history,
+            similarity_query,
+            target_col=PANEL_TARGET_COL,
+        )
+
+        metrics = cast(Dict[str, Any], dict(metrics))
+        metrics["n_symbols"] = int(train_df["symbol"].nunique())
+        metrics["text_features"] = metrics.get("text_svd_components", 0)
         markdown = build_markdown_report(
             ticker=normalized,
             prob_up=prob_up,
             metrics=metrics,
             shap_summary=shap_summary,
+            historical_similarity=historical_similarity,
+            target_label=PANEL_TARGET_LABEL,
+            model_label="LightGBM Panel",
         )
     except Exception as exc:
         msg = (
             "ML quant pipeline failed; this usually indicates insufficient "
-            "history, data quality issues, or an internal error. "
+            "database coverage, data quality issues, or an internal error. "
             f"{type(exc).__name__}: {exc}"
         )
         logger.warning("run_ml_quant_analysis failed for %s: %s", normalized, msg, exc_info=True)
         base["error"] = msg
         return base
 
-    prediction = "up" if prob_up >= 0.5 else "down"
+    prediction = "up_big_move" if prob_up >= 0.5 else "no_up_big_move"
 
     base["prob_up"] = float(prob_up)
     base["prediction"] = prediction
     base["metrics"] = cast(Dict[str, Any], metrics)
     base["shap_insights"] = shap_summary
+    base["historical_similarity"] = historical_similarity
     base["markdown_report"] = markdown
+    base["feature_count"] = int(train_feature_matrix.shape[1])
     return base
 
 
 @tool("run_ml_quant_analysis")
 def run_ml_quant_analysis(ticker: str) -> MlQuantResult:
-    """Run a LightGBM + SHAP based 3-day smoothed direction analysis for a single asset.
+    """Run a panel LightGBM + SHAP analysis for a single asset.
 
     This tool is designed for Quant Agents that need a **compact but
     explainable** machine-learning view of an asset's short-term technical
-    outlook. Given a ticker (such as ``\"AAPL\"`` or ``\"BTC-USD\"``), it:
+    outlook. Given a ticker (such as ``\"AAPL\"`` or ``\"NVDA\"``), it:
 
-    1. Fetches daily OHLCV for the main ticker plus DXY and VIX from Yahoo
-       Finance, merges by date, and builds technical + macro features.
-    2. Builds a thresholded 3-day smoothed direction label (R_future vs epsilon)
-       and drops oscillation samples.
-    3. Trains ``LGBMClassifier`` with strong regularization using
-       ``TimeSeriesSplit(n_splits=5)`` and reports out-of-sample mean AUC/accuracy.
-    4. Uses SHAP to attribute the **most recent day** prediction to top
+    1. Loads the local OHLC + news-sentiment dataset for the stock universe and
+       builds one unified panel dataset.
+    2. Uses the event-style target ``future_3d_up_big_move_gt_2pct_panel`` to
+       focus on actionable upside moves instead of noisy next-day drift.
+    3. Trains ``LGBMClassifier`` with date-blocked panel CV so each trade date
+       is fully assigned to train or test.
+    4. Converts each day's aggregated news text into ``text_svd_*`` features
+       via fold-isolated TF-IDF + SVD and fuses them with panel factors.
+    5. Uses SHAP to attribute the **latest row for the requested ticker** to top
        positive and negative features.
-    5. Generates a Chinese Markdown summary with model conclusion and SHAP drivers.
+    6. Retrieves historically similar panel windows via cosine similarity on
+       recent feature averages, then summarizes their realized forward returns.
+    7. Generates a Chinese Markdown summary with model conclusion, SHAP drivers,
+       and historical analog evidence.
 
     Typical usage:
 
     - When a user asks for a probability-style technical view such as
-      \"How likely is BTC-USD to rise tomorrow based on recent price action?\"
+      \"How likely is NVDA to make a meaningful upside move over the next few days?\"
     - When a Quant Agent is preparing a structured ``quant.json`` report and
       needs to populate the ``ml_quant`` sub-field for CIO consumption.
 
     Args:
-        ticker: Asset symbol understood by Yahoo Finance (for example,
-            ``\"NVDA\"``, ``\"AAPL\"``, ``\"BTC-USD\"``, ``\"DOGE-USD\"``). The
-            symbol is internally uppercased; both US equities and major
-            crypto pairs are supported as long as Yahoo provides sufficient
-            history.
+        ticker: Asset symbol available in the local stock panel database (for
+            example, ``\"NVDA\"`` or ``\"AAPL\"``). The symbol is internally
+            uppercased.
 
     Returns:
         An ``MlQuantResult`` dictionary that can be serialized directly into
         ``quant.json.ml_quant``. On success it includes keys:
 
-        - ``model``: Currently ``\"lightgbm\"``.
-        - ``target``: e.g. ``\"next_3d_direction_filtered\"``.
-        - ``data_source``: ``\"yfinance_direct\"`` to distinguish from
-          MCP-based sources.
-        - ``prob_up``: Next-day up-move probability in ``[0, 1]``.
-        - ``prediction``: ``\"up\"`` if ``prob_up >= 0.5`` else ``\"down\"``.
+        - ``model``: Currently ``\"lightgbm_panel\"``.
+        - ``target``: ``\"future_3d_up_big_move_gt_2pct_panel\"``.
+        - ``data_source``: ``\"sqlite_panel_db\"``.
+        - ``prob_up``: Probability that the ticker posts an upside move greater
+          than 2% within the next 3 trading days.
+        - ``prediction``: ``\"up_big_move\"`` if ``prob_up >= 0.5`` else
+          ``\"no_up_big_move\"``.
         - ``metrics``: Dictionary with ``mean_auc``, ``mean_accuracy``,
-          ``fold_aucs``, ``train_test_split`` (e.g. TimeSeriesSplit_n5), and
+          ``fold_aucs``, ``train_test_split`` (e.g. PanelTimeSeriesSplit_n5), and
           backward-compatible ``accuracy``/``auc``.
         - ``shap_insights``: Structured SHAP summary with top positive and
           negative features.
+        - ``historical_similarity``: Summary of the most similar historical
+          panel windows, including average forward return and top matches.
         - ``markdown_report``: Chinese Markdown explanation suitable for
           direct inclusion in human-facing or agent-facing reports.
 
-        If an error occurs (for example, insufficient history or network
-        issues when calling yfinance), the return value still contains
+        If an error occurs (for example, insufficient local database coverage),
+        the return value still contains
         ``model``, ``target`` and ``data_source`` along with an ``error``
         field describing the problem. Callers should check for the presence
         of ``error`` before trusting the numeric outputs.

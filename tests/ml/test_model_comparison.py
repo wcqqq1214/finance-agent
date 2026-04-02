@@ -418,6 +418,89 @@ class TestGenerateComparisonReport:
         assert "lightgbm" in report["feature_importance"]
         assert "top_features" in report["feature_importance"]["lightgbm"]
 
+    def test_generate_report_prefers_lightgbm_feature_matrix_from_results(self):
+        """Test feature importance uses the LightGBM-specific feature matrix when provided."""
+        mock_model = Mock()
+        mock_model.get_params.return_value = {"n_estimators": 200}
+        mock_model.feature_importances_ = np.array([10, 30, 20])
+
+        results = {
+            "lightgbm": {
+                "model": mock_model,
+                "metrics": {"mean_auc": 0.54, "mean_accuracy": 0.52},
+                "prediction": 0.542,
+                "feature_matrix": pd.DataFrame(
+                    {
+                        "symbol": ["AAPL", "MSFT"],
+                        "sentiment_score": [0.2, -0.1],
+                        "ret_1d_residual": [0.01, -0.02],
+                    }
+                ),
+            }
+        }
+
+        X = pd.DataFrame({"different": [1, 2]})
+        report = generate_comparison_report(
+            results=results,
+            symbol="AAPL",
+            date_range=("2024-01-01", "2024-12-31"),
+            X=X,
+            dl_config=DLConfig(),
+        )
+
+        top_names = [item["name"] for item in report["feature_importance"]["lightgbm"]["top_features"]]
+        assert "symbol" in top_names
+        assert "sentiment_score" in top_names
+
+    def test_generate_report_includes_historical_similarity(self):
+        mock_model = Mock()
+        mock_model.get_params.return_value = {"n_estimators": 200}
+        mock_model.feature_importances_ = np.array([10, 30])
+
+        results = {
+            "lightgbm": {
+                "model": mock_model,
+                "metrics": {"mean_auc": 0.54, "mean_accuracy": 0.52},
+                "prediction": 0.542,
+                "feature_matrix": pd.DataFrame({"symbol": ["AAPL"], "ret_1d": [0.1]}),
+                "historical_similarity": {
+                    "n_matches": 2,
+                    "horizon_days": 3,
+                    "avg_similarity": 0.91,
+                    "avg_future_return_3d": 0.032,
+                    "positive_rate": 1.0,
+                    "target_hit_rate": 0.5,
+                    "same_symbol_matches": 1,
+                    "peer_group_matches": 1,
+                    "market_matches": 0,
+                    "cross_symbol_matches": 1,
+                    "matches": [
+                        {
+                            "symbol": "MSFT",
+                            "start_date": "2024-01-04",
+                            "end_date": "2024-01-08",
+                            "similarity": 0.93,
+                            "future_return_3d": 0.05,
+                            "scope": "peer_group",
+                        }
+                    ],
+                },
+            }
+        }
+
+        X = pd.DataFrame({"different": [1, 2]})
+        report = generate_comparison_report(
+            results=results,
+            symbol="AAPL",
+            date_range=("2024-01-01", "2024-12-31"),
+            X=X,
+            dl_config=DLConfig(),
+        )
+
+        assert "historical_similarity" in report
+        assert report["historical_similarity"]["n_matches"] == 2
+        assert report["historical_similarity"]["matches"][0]["symbol"] == "MSFT"
+
 
 class TestFormatComparisonMarkdown:
     """Test markdown formatting."""
@@ -632,3 +715,51 @@ class TestFormatComparisonMarkdown:
         assert "## LightGBM 特征重要性" in markdown
         assert "RSI_14" in markdown
         assert "Volume_Ratio" in markdown
+
+    def test_markdown_with_historical_similarity(self):
+        report = {
+            "metadata": {
+                "symbol": "AAPL",
+                "date_range": ("2024-01-01", "2024-12-31"),
+                "generated_at": "2026-04-01 10:30:00",
+                "data_points": 252,
+            },
+            "parameters": {},
+            "metrics": {
+                "lightgbm": {"mean_auc": 0.54},
+            },
+            "predictions": {
+                "lightgbm": 0.5,
+                "fusion_score": 0.5,
+            },
+            "feature_importance": {},
+            "historical_similarity": {
+                "n_matches": 2,
+                "horizon_days": 3,
+                "avg_similarity": 0.91,
+                "avg_future_return_3d": 0.032,
+                "positive_rate": 1.0,
+                "target_hit_rate": 0.5,
+                "same_symbol_matches": 1,
+                "peer_group_matches": 1,
+                "market_matches": 0,
+                "cross_symbol_matches": 1,
+                "matches": [
+                    {
+                        "symbol": "MSFT",
+                        "start_date": "2024-01-04",
+                        "end_date": "2024-01-08",
+                        "similarity": 0.93,
+                        "future_return_3d": 0.05,
+                        "scope": "peer_group",
+                    }
+                ],
+            },
+        }
+
+        markdown = format_comparison_markdown(report)
+
+        assert "## 历史相似阶段" in markdown
+        assert "平均相似度约" in markdown
+        assert "MSFT" in markdown
+        assert "同股票优先、peer group 次优先、全市场兜底" in markdown

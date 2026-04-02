@@ -8,10 +8,11 @@ from app.database.ohlc import (
     upsert_ohlc,
     upsert_ohlc_overwrite,
 )
-from app.database.schema import DEFAULT_DB_PATH, get_conn, init_db
+from app.database.schema import DEFAULT_DB_PATH, get_conn, get_ticker_peer_groups, init_db
 
 __all__ = [
     "get_conn",
+    "get_ticker_peer_groups",
     "init_db",
     "DEFAULT_DB_PATH",
     "get_ohlc",

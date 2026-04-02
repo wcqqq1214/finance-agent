@@ -17,12 +17,27 @@ from sklearn.preprocessing import RobustScaler
 
 from app.ml.dl_config import COLUMNS_TO_SCALE, PASSTHROUGH_COLUMNS, DLConfig
 from app.ml.dl_trainer import train_dl_model
-from app.ml.features import FEATURE_COLS, build_features
-from app.ml.model_trainer import predict_proba_latest, train_lightgbm
+from app.ml.features import (
+    FEATURE_COLS,
+    PANEL_FEATURE_COLS,
+    TEXT_BLOB_COL,
+    build_features,
+    build_panel_features,
+)
+from app.ml.model_trainer import (
+    predict_proba_latest,
+    train_lightgbm,
+    train_lightgbm_panel_with_text,
+)
+from app.ml.similarity import HistoricalSimilaritySummary, find_similar_historical_periods
+from app.ml.text_features import transform_text_svd_features
 
 logger = logging.getLogger(__name__)
 
 ModelType = Literal["lightgbm", "gru", "lstm"]
+DEFAULT_SYMBOL_TARGET_COL = "target_up_big_move_t3"
+DEFAULT_LIGHTGBM_SCOPE = "panel"
+DEFAULT_DL_SCOPE = "single_symbol"
 
 
 def _extract_parameters(model: Any, model_type: str, dl_config: DLConfig | None = None) -> Dict[str, Any]:
@@ -127,6 +142,103 @@ def _extract_feature_importance(model: Any, X: pd.DataFrame, top_k: int = 3) -> 
         return []
 
 
+def _load_symbol_dataset(
+    symbol: str,
+    target_col: str = DEFAULT_SYMBOL_TARGET_COL,
+    *,
+    start_date: str | pd.Timestamp | None = None,
+    end_date: str | pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+    """Load a single-symbol dataset for sequential models."""
+
+    df = build_features(symbol, start_date=start_date, end_date=end_date)
+    if df.empty:
+        raise ValueError(f"No features available for {symbol}")
+
+    data = df.dropna(subset=[target_col]).reset_index(drop=True)
+    if data.empty:
+        raise ValueError(f"No labeled rows available for {symbol} and target {target_col}")
+
+    X = data[FEATURE_COLS]
+    y = data[target_col].astype(int)
+    return data, X, y
+
+
+def _load_panel_lightgbm_dataset(
+    symbol: str,
+    target_col: str = DEFAULT_SYMBOL_TARGET_COL,
+    *,
+    start_date: str | pd.Timestamp | None = None,
+    end_date: str | pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, pd.DataFrame]:
+    """Load the unified panel dataset and latest inference row for one symbol."""
+
+    panel = build_panel_features(start_date=start_date, end_date=end_date)
+    if panel.empty:
+        raise ValueError("Panel feature dataset is empty")
+
+    available_symbols = sorted(panel["symbol"].astype(str).unique().tolist())
+    if symbol not in available_symbols:
+        raise ValueError(f"Symbol {symbol!r} not found in panel universe: {available_symbols}")
+
+    train_df = panel.dropna(subset=[target_col]).copy()
+    if train_df.empty:
+        raise ValueError(f"No labeled panel rows available for target {target_col}")
+
+    X = train_df[PANEL_FEATURE_COLS]
+    y = train_df[target_col].astype(int)
+    trade_dates = train_df["trade_date"]
+    train_text = train_df[TEXT_BLOB_COL]
+
+    latest_symbol_rows = panel.loc[panel["symbol"].astype(str) == symbol].sort_values("trade_date")
+    if latest_symbol_rows.empty:
+        raise ValueError(f"No panel feature rows available for {symbol}")
+    return train_df, X, y, trade_dates, train_text, latest_symbol_rows
+
+
+def _build_historical_similarity_summary(
+    train_df: pd.DataFrame,
+    train_feature_matrix: pd.DataFrame,
+    symbol_rows: pd.DataFrame,
+    symbol_feature_matrix: pd.DataFrame,
+    *,
+    target_col: str = DEFAULT_SYMBOL_TARGET_COL,
+) -> HistoricalSimilaritySummary | None:
+    """Build a historical analog summary for the latest symbol window."""
+
+    required_base_cols = {"symbol", "trade_date", "close"}
+    if (
+        train_df.empty
+        or train_feature_matrix.empty
+        or symbol_rows.empty
+        or symbol_feature_matrix.empty
+        or not required_base_cols.issubset(train_df.columns)
+        or not required_base_cols.issubset(symbol_rows.columns)
+    ):
+        return None
+
+    history = (
+        train_df[["symbol", "trade_date", "close", target_col]]
+        .reset_index(drop=True)
+        .join(train_feature_matrix.drop(columns=["symbol"], errors="ignore").reset_index(drop=True))
+    )
+    query = (
+        symbol_rows[["symbol", "trade_date", "close"]]
+        .reset_index(drop=True)
+        .join(symbol_feature_matrix.drop(columns=["symbol"], errors="ignore").reset_index(drop=True))
+    )
+
+    try:
+        return find_similar_historical_periods(
+            history,
+            query,
+            target_col=target_col,
+        )
+    except Exception as exc:
+        logger.warning("Failed to build historical similarity summary: %s", exc, exc_info=True)
+        return None
+
+
 def generate_comparison_report(
     results: Dict[str, Dict],
     symbol: str,
@@ -193,8 +305,9 @@ def generate_comparison_report(
     feature_importance = {}
     if "lightgbm" in results:
         lgbm_model = results["lightgbm"]["model"]
+        lgbm_X = results["lightgbm"].get("feature_matrix", X)
         try:
-            top_features = _extract_feature_importance(lgbm_model, X, top_k=3)
+            top_features = _extract_feature_importance(lgbm_model, lgbm_X, top_k=3)
             if top_features:
                 feature_importance["lightgbm"] = {"top_features": top_features}
             else:
@@ -219,6 +332,9 @@ def generate_comparison_report(
         "predictions": {**predictions, "fusion_score": fusion_score},
         "feature_importance": feature_importance,
     }
+    historical_similarity = results.get("lightgbm", {}).get("historical_similarity")
+    if historical_similarity:
+        report["historical_similarity"] = historical_similarity
 
     return report
 
@@ -229,6 +345,8 @@ def train_all_models(
     symbol: str | None = None,
     model_types: List[ModelType] | None = None,
     dl_config: DLConfig | None = None,
+    start_date: str | pd.Timestamp | None = None,
+    end_date: str | pd.Timestamp | None = None,
 ) -> Dict[str, Dict]:
     """Train multiple models and return predictions.
 
@@ -236,8 +354,9 @@ def train_all_models(
     provides multi-dimensional "expert opinions" for CIO Agent.
 
     Can be called in two ways:
-    1. With X, y directly (for testing)
-    2. With symbol (for production, calls build_features)
+    1. With X, y directly (for testing or external datasets)
+    2. With symbol (for production: LightGBM uses unified panel data; DL uses
+       the single-symbol sequence)
 
     Args:
         X: Feature matrix (optional, use if not providing symbol)
@@ -245,6 +364,8 @@ def train_all_models(
         symbol: Stock ticker (e.g., "AAPL") - alternative to X, y
         model_types: Models to train, default ["lightgbm", "gru"]
         dl_config: DL configuration, default DLConfig()
+        start_date: Optional lower date bound when loading by symbol
+        end_date: Optional upper date bound when loading by symbol
 
     Returns:
         {
@@ -270,18 +391,49 @@ def train_all_models(
     if dl_config is None:
         dl_config = DLConfig()
 
+    lgbm_X: pd.DataFrame | None = None
+    lgbm_y: pd.Series | None = None
+    lgbm_trade_dates: pd.Series | None = None
+    lgbm_text: pd.Series | None = None
+    lgbm_train_df: pd.DataFrame | None = None
+    lgbm_symbol_rows: pd.DataFrame | None = None
+    dl_X: pd.DataFrame | None = None
+    dl_y: pd.Series | None = None
+
     # Load features
     if X is None or y is None:
         if symbol is None:
             raise ValueError("Must provide either (X, y) or symbol")
-        df = build_features(symbol)
-        if df.empty:
-            raise ValueError(f"No features available for {symbol}")
-        X = df[FEATURE_COLS]
-        y = df["target_t1"]
+        symbol_norm = symbol.strip().upper()
+        wants_lightgbm = "lightgbm" in model_types
+        wants_dl = any(model_type in model_types for model_type in ["gru", "lstm"])
+
+        if wants_dl:
+            _, dl_X, dl_y = _load_symbol_dataset(
+                symbol_norm,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        if wants_lightgbm:
+            (
+                lgbm_train_df,
+                lgbm_X,
+                lgbm_y,
+                lgbm_trade_dates,
+                lgbm_text,
+                lgbm_symbol_rows,
+            ) = _load_panel_lightgbm_dataset(
+                symbol_norm,
+                start_date=start_date,
+                end_date=end_date,
+            )
     else:
         if X.empty or y.empty:
             raise ValueError("Feature matrix X or target y is empty")
+        lgbm_X = X
+        lgbm_y = y
+        dl_X = X
+        dl_y = y
 
     results = {}
 
@@ -289,14 +441,59 @@ def train_all_models(
     if "lightgbm" in model_types:
         logger.info("Training LightGBM")
         try:
-            lgbm_model, lgbm_metrics = train_lightgbm(X, y, n_splits=5)
-            lgbm_pred = predict_proba_latest(lgbm_model, X)
+            if lgbm_X is None or lgbm_y is None:
+                raise ValueError("LightGBM feature matrix is empty")
+
+            if (
+                symbol is not None
+                and lgbm_trade_dates is not None
+                and lgbm_text is not None
+                and lgbm_symbol_rows is not None
+            ):
+                lgbm_model, lgbm_metrics, text_artifacts, lgbm_feature_matrix = train_lightgbm_panel_with_text(
+                    lgbm_X,
+                    lgbm_y,
+                    lgbm_trade_dates,
+                    lgbm_text,
+                    categorical_features=["symbol"],
+                    n_splits=5,
+                )
+                symbol_text_features = transform_text_svd_features(
+                    lgbm_symbol_rows[TEXT_BLOB_COL],
+                    text_artifacts,
+                )
+                lgbm_symbol_feature_matrix = (
+                    lgbm_symbol_rows[PANEL_FEATURE_COLS]
+                    .reset_index(drop=True)
+                    .join(symbol_text_features.reset_index(drop=True))
+                )
+                lgbm_latest_features = lgbm_symbol_feature_matrix.tail(1)
+                lgbm_pred = predict_proba_latest(lgbm_model, lgbm_latest_features)
+                lgbm_metrics = dict(lgbm_metrics)
+                lgbm_metrics["training_scope"] = DEFAULT_LIGHTGBM_SCOPE
+                lgbm_metrics["target"] = DEFAULT_SYMBOL_TARGET_COL
+                historical_similarity = _build_historical_similarity_summary(
+                    train_df=lgbm_train_df if lgbm_train_df is not None else pd.DataFrame(),
+                    train_feature_matrix=lgbm_feature_matrix,
+                    symbol_rows=lgbm_symbol_rows,
+                    symbol_feature_matrix=lgbm_symbol_feature_matrix,
+                )
+            else:
+                lgbm_model, lgbm_metrics = train_lightgbm(lgbm_X, lgbm_y, n_splits=5)
+                lgbm_pred = predict_proba_latest(lgbm_model, lgbm_X)
+                lgbm_metrics = dict(lgbm_metrics)
+                lgbm_metrics["training_scope"] = "provided_dataset"
+                lgbm_feature_matrix = lgbm_X
+                historical_similarity = None
 
             results["lightgbm"] = {
                 "model": lgbm_model,
                 "metrics": lgbm_metrics,
                 "prediction": lgbm_pred,
+                "feature_matrix": lgbm_feature_matrix,
             }
+            if historical_similarity:
+                results["lightgbm"]["historical_similarity"] = historical_similarity
             logger.info(f"LightGBM - AUC: {lgbm_metrics['mean_auc']:.4f}")
         except Exception as e:
             logger.error(f"LightGBM training failed: {e}")
@@ -308,11 +505,19 @@ def train_all_models(
 
         logger.info(f"Training {model_type.upper()}")
         try:
+            if dl_X is None or dl_y is None:
+                raise ValueError(f"{model_type.upper()} feature matrix is empty")
             dl_config.model_type = model_type
             # CRITICAL FIX: train_dl_model now returns (model, metrics, scaler)
-            dl_model, dl_metrics, dl_scaler = train_dl_model(X, y, config=dl_config)
+            dl_model, dl_metrics, dl_scaler = train_dl_model(dl_X, dl_y, config=dl_config)
             # CRITICAL FIX: Pass scaler to predict_proba_latest_dl
-            dl_pred = predict_proba_latest_dl(dl_model, X, dl_config, dl_scaler)
+            dl_pred = predict_proba_latest_dl(dl_model, dl_X, dl_config, dl_scaler)
+            dl_metrics = dict(dl_metrics)
+            if symbol is not None:
+                dl_metrics["training_scope"] = DEFAULT_DL_SCOPE
+                dl_metrics["target"] = DEFAULT_SYMBOL_TARGET_COL
+            else:
+                dl_metrics["training_scope"] = "provided_dataset"
 
             results[model_type] = {
                 "model": dl_model,
@@ -553,9 +758,18 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
     lines.append(f"| Mean Accuracy | {lgbm_acc_str} | {gru_acc_str} | {lstm_acc_str} |")
 
     # Training time
-    lgbm_time = metrics.get("lightgbm", {}).get("training_time", "N/A")
-    gru_time = metrics.get("gru", {}).get("training_time", "N/A")
-    lstm_time = metrics.get("lstm", {}).get("training_time", "N/A")
+    lgbm_time = metrics.get("lightgbm", {}).get(
+        "training_time_seconds",
+        metrics.get("lightgbm", {}).get("training_time", "N/A"),
+    )
+    gru_time = metrics.get("gru", {}).get(
+        "training_time_seconds",
+        metrics.get("gru", {}).get("training_time", "N/A"),
+    )
+    lstm_time = metrics.get("lstm", {}).get(
+        "training_time_seconds",
+        metrics.get("lstm", {}).get("training_time", "N/A"),
+    )
 
     lgbm_time_str = f"{lgbm_time:.2f}秒" if isinstance(lgbm_time, (int, float)) else lgbm_time
     gru_time_str = f"{gru_time:.2f}秒" if isinstance(gru_time, (int, float)) else gru_time
@@ -606,6 +820,52 @@ def format_comparison_markdown(report: Dict[str, Any]) -> str:
         lines.append("")
     else:
         lines.append("无可用特征重要性数据\n")
+
+    historical_similarity = report.get("historical_similarity")
+    if historical_similarity and historical_similarity.get("n_matches", 0) > 0:
+        lines.append("## 历史相似阶段\n")
+        avg_sim = float(historical_similarity.get("avg_similarity", 0.0)) * 100.0
+        avg_ret = float(historical_similarity.get("avg_future_return_3d", 0.0)) * 100.0
+        positive_rate = float(historical_similarity.get("positive_rate", 0.0)) * 100.0
+        hit_rate = float(historical_similarity.get("target_hit_rate", 0.0)) * 100.0
+        same_symbol_matches = int(historical_similarity.get("same_symbol_matches", 0))
+        peer_group_matches = int(historical_similarity.get("peer_group_matches", 0))
+        market_matches = int(historical_similarity.get("market_matches", 0))
+        horizon_days = historical_similarity.get("horizon_days", 3)
+        lines.append(
+            f"- 系统找到 **{historical_similarity.get('n_matches', 0)} 个** 与当前状态高度相似的历史窗口，"
+            f"平均相似度约 **{avg_sim:.1f}%**。"
+        )
+        if same_symbol_matches or peer_group_matches or market_matches:
+            lines.append(
+                f"- 匹配策略为 **同股票优先、peer group 次优先、全市场兜底**："
+                f"同股票 {same_symbol_matches} 个，peer group {peer_group_matches} 个，"
+                f"全市场补充 {market_matches} 个。"
+            )
+        lines.append(
+            f"- 这些窗口在随后 {horizon_days} 个交易日的平均收益约 **{avg_ret:+.2f}%**，"
+            f"正收益占比约 **{positive_rate:.1f}%**，"
+            f"上涨异动命中率约 **{hit_rate:.1f}%**。"
+        )
+
+        matches = historical_similarity.get("matches", [])[:3]
+        if matches:
+            lines.append("")
+            lines.append("| 相似标的 | 窗口区间 | 相似度 | 随后3日收益 |")
+            lines.append("|----------|----------|--------|-------------|")
+            for match in matches:
+                window = f"{match.get('start_date', 'N/A')} ~ {match.get('end_date', 'N/A')}"
+                similarity = float(match.get("similarity", 0.0)) * 100.0
+                future_ret = float(match.get("future_return_3d", 0.0)) * 100.0
+                scope_label = {
+                    "same_symbol": "同股票",
+                    "peer_group": "peer group",
+                    "market": "全市场",
+                }.get(str(match.get("scope", "market")), "全市场")
+                lines.append(
+                    f"| {match.get('symbol', 'N/A')} ({scope_label}) | {window} | {similarity:.1f}% | {future_ret:+.2f}% |"
+                )
+            lines.append("")
 
     # Comprehensive Assessment section
     lines.append("## 综合评估\n")
@@ -660,7 +920,26 @@ def format_predictions_for_agent(results: Dict[str, Dict]) -> str:
         lines.append(f"- **模型准确率**: {metrics['mean_accuracy']:.4f}")
 
         if model_name == "lightgbm":
-            lines.append("- **分析依据**: 基于截面因子和近期动量")
+            if metrics.get("training_scope") == DEFAULT_LIGHTGBM_SCOPE:
+                lines.append("- **分析依据**: 基于全市场 panel 因子、市场残差、文本 SVD 和近期动量")
+            else:
+                lines.append("- **分析依据**: 基于截面因子和近期动量")
+            historical_similarity = result.get("historical_similarity")
+            if historical_similarity and historical_similarity.get("n_matches", 0) > 0:
+                avg_ret = float(historical_similarity.get("avg_future_return_3d", 0.0)) * 100.0
+                hit_rate = float(historical_similarity.get("target_hit_rate", 0.0)) * 100.0
+                same_symbol_matches = int(historical_similarity.get("same_symbol_matches", 0))
+                peer_group_matches = int(historical_similarity.get("peer_group_matches", 0))
+                market_matches = int(historical_similarity.get("market_matches", 0))
+                top_match = (historical_similarity.get("matches") or [{}])[0]
+                top_symbol = top_match.get("symbol", "N/A")
+                lines.append(
+                    f"- **历史相似期**: 匹配到 {historical_similarity.get('n_matches', 0)} 个高相似窗口，"
+                    f"随后 3 日平均收益约 {avg_ret:+.2f}%，异动命中率约 {hit_rate:.1f}%，"
+                    f"同股票 {same_symbol_matches} 个、peer group {peer_group_matches} 个、"
+                    f"全市场补充 {market_matches} 个，"
+                    f"最接近样本来自 `{top_symbol}`。"
+                )
         elif model_name == "gru":
             seq_len = metrics.get("seq_len", 15)
             lines.append(f"- **分析依据**: 基于过去{seq_len}天的K线序列形态")

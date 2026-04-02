@@ -1,7 +1,8 @@
 """Standalone CLI script for multi-model comparison.
 
-This script trains multiple ML models (LightGBM, GRU, LSTM) on stock data,
-generates a comparison report, and exports it as a Markdown file.
+This script trains multiple ML models (LightGBM, GRU, LSTM) on the database-
+backed feature pipeline, generates a comparison report, and exports it as a
+Markdown file.
 
 Usage:
     uv run python scripts/ml/compare_models.py --symbol AAPL --start 2024-01-01 --end 2024-12-31
@@ -17,25 +18,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 
+import pandas as pd
+
 # Add project root to path for imports
 _script_dir = Path(__file__).resolve().parent
 _project_root = _script_dir.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import pandas as pd
-
 # Import ML modules with error handling
 try:
-    # Import feature engineering functions
-    # Import DL config for deep learning models
     from app.ml.dl_config import DLConfig
-    from app.ml.feature_engine import FeatureConfig, build_dataset, load_ohlcv_with_macro
-
-    # Import feature columns
-    from app.ml.features import FEATURE_COLS
-
-    # Import model registry functions
+    from app.ml.features import FEATURE_COLS, build_features
     from app.ml.model_registry import (
         format_comparison_markdown,
         generate_comparison_report,
@@ -44,10 +38,10 @@ try:
 except ImportError as e:
     raise ImportError(
         f"Failed to import app.ml modules: {e}\n"
-        "This may indicate that MCP servers are not running or dependencies are missing.\n"
+        "This may indicate that the database or Python dependencies are unavailable.\n"
         "Please ensure:\n"
-        "  1. MCP servers are running (bash scripts/startup/start_mcp_servers.sh)\n"
-        "  2. All dependencies are installed (uv pip install -e .)"
+        "  1. All dependencies are installed (uv pip install -e .)\n"
+        "  2. The local database has been initialized and populated"
     ) from e
 
 
@@ -141,58 +135,49 @@ def load_features(
     symbol: str,
     start_date: datetime,
     end_date: datetime,
-) -> Tuple[pd.DataFrame, pd.Series]:
-    """Load and prepare features from OHLCV data.
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+    """Load and prepare DB-backed features for a single symbol.
 
     Args:
         symbol: Stock ticker symbol
-        start_date: Start date for data retrieval
-        end_date: End date for data retrieval
+        start_date: Start date for feature filtering
+        end_date: End date for feature filtering
 
     Returns:
-        Tuple of (X, y) - feature matrix and target series
+        Tuple of (data, X, y) where data contains the filtered feature rows
 
     Raises:
         ValueError: If insufficient data or date range invalid
     """
-    logger.info(f"Loading OHLCV data for {symbol} from {start_date.date()} to {end_date.date()}")
+    logger.info(
+        "Loading DB features for %s from %s to %s",
+        symbol,
+        start_date.date(),
+        end_date.date(),
+    )
 
-    # Calculate years needed for yfinance (need extra buffer for feature computation)
-    delta_days = (end_date - start_date).days
-    period_years = max(5, (delta_days // 365) + 1)  # At least 5 years for training
+    data = build_features(
+        symbol,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+    )
+    if data.empty:
+        raise ValueError(f"No feature rows returned for {symbol} in the requested date range")
 
-    # Load OHLCV with macro data (includes DXY, VIX)
-    df = load_ohlcv_with_macro(symbol, period_years=period_years)
-
-    if df.empty:
-        raise ValueError(f"No OHLCV data returned for {symbol}")
-
-    logger.info(f"Loaded {len(df)} rows of raw data")
-
-    # Filter to requested date range
-    df = df.loc[start_date:end_date].copy()
-
-    if len(df) < 100:
+    data = data.dropna(subset=["target_up_big_move_t3"]).reset_index(drop=True)
+    if data.empty or len(data) < 50:
         raise ValueError(
-            f"Insufficient data after date filtering: {len(df)} rows. "
-            f"Need at least 100 rows for meaningful training."
-        )
-
-    logger.info(f"After date filter: {len(df)} rows")
-
-    # Build features using feature_engine pipeline
-    X, y = build_dataset(df)
-
-    if X.empty or len(X) < 50:
-        raise ValueError(
-            f"Insufficient features after build_dataset: {len(X)} rows. "
+            f"Insufficient labeled feature rows after filtering: {len(data)} rows. "
             f"Need at least 50 rows for time-series CV."
         )
+
+    X = data[FEATURE_COLS]
+    y = data["target_up_big_move_t3"].astype(int)
 
     logger.info(f"Built feature matrix: X.shape={X.shape}, y.shape={y.shape}")
     logger.info(f"Positive class ratio: {y.mean():.4f}")
 
-    return X, y
+    return data, X, y
 
 
 def parse_models(models_str: str) -> List[str]:
@@ -275,7 +260,7 @@ def main() -> int:
 
     # Step 1: Load features
     try:
-        X, y = load_features(args.symbol.upper(), start_date, end_date)
+        data, X, y = load_features(args.symbol.upper(), start_date, end_date)
     except ValueError as e:
         logger.error(f"Feature loading failed: {e}")
         return 1
@@ -287,11 +272,11 @@ def main() -> int:
     try:
         logger.info("Training models...")
         results = train_all_models(
-            X=X,
-            y=y,
-            symbol=None,  # X, y provided directly
+            symbol=args.symbol.upper(),
             model_types=model_list,
             dl_config=DLConfig(n_splits=3),
+            start_date=args.start,
+            end_date=args.end,
         )
         logger.info(f"Trained {len(results)} models: {list(results.keys())}")
     except ValueError as e:
@@ -348,7 +333,7 @@ def main() -> int:
     print("=" * 60)
     print(f"Symbol: {args.symbol.upper()}")
     print(f"Date Range: {args.start} to {args.end}")
-    print(f"Data Points: {report['metadata'].get('data_points', 'N/A')}")
+    print(f"Data Points: {len(data)}")
     print("-" * 60)
     print("Predictions:")
     for model_name, pred in report["predictions"].items():

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
+
+from app.ml.text_features import (
+    DEFAULT_TEXT_SVD_COMPONENTS,
+    TextSVDArtifacts,
+    fit_text_svd_features,
+)
 
 # Strong regularization for low signal-to-noise financial data (new_ml_quant.md).
 LGBM_PARAMS: Dict[str, object] = {
@@ -30,17 +36,40 @@ LGBM_PARAMS: Dict[str, object] = {
 }
 
 
+def _fit_lightgbm_classifier(
+    X: pd.DataFrame,
+    y: pd.Series,
+    categorical_features: Sequence[str] | None = None,
+) -> LGBMClassifier:
+    """Fit a LightGBM classifier with optional categorical features."""
+
+    clf = LGBMClassifier(**LGBM_PARAMS)
+    fit_kwargs: Dict[str, object] = {}
+    if categorical_features:
+        fit_kwargs["categorical_feature"] = list(categorical_features)
+    clf.fit(X, y, **fit_kwargs)
+    return clf
+
+
+def _combine_feature_frames(X: pd.DataFrame, text_features: pd.DataFrame) -> pd.DataFrame:
+    """Append text features to a base feature matrix while preserving order."""
+
+    base = X.reset_index(drop=True)
+    text = text_features.reset_index(drop=True)
+    return pd.concat([base, text], axis=1)
+
+
 def train_lightgbm(
     X: pd.DataFrame,
     y: pd.Series,
     n_splits: int = 5,
 ) -> Tuple[LGBMClassifier, Dict[str, float | str | List[float]]]:
-    """Train LightGBM with time-series cross-validation and return last-fold model.
+    """Train LightGBM with time-series cross-validation and return a refit model.
 
     Uses ``TimeSeriesSplit(n_splits)`` so each fold trains on past data and
     evaluates on future data. Aggregates out-of-sample AUC and accuracy across
-    folds and returns the model trained in the last fold (for SHAP and
-    predict_proba_latest).
+    folds, then refits a final model on the full dataset for downstream SHAP
+    and inference.
 
     Args:
         X: Feature matrix, rows ordered in time (oldest first).
@@ -48,9 +77,10 @@ def train_lightgbm(
         n_splits: Number of time-series splits (default 5).
 
     Returns:
-        (model, metrics) where model is the last-fold trained LGBMClassifier
-        and metrics includes mean_auc, mean_accuracy, fold_aucs, fold_accuracies,
-        train_test_split, and backward-compatible accuracy/auc keys.
+        (model, metrics) where model is the full-sample refit LGBMClassifier
+        and metrics includes mean_auc, mean_accuracy, fold_aucs,
+        fold_accuracies, train_test_split, and backward-compatible
+        accuracy/auc keys.
     """
 
     if X.empty:
@@ -63,8 +93,6 @@ def train_lightgbm(
     tss = TimeSeriesSplit(n_splits=n_splits)
     fold_aucs: List[float] = []
     fold_accuracies: List[float] = []
-    model: LGBMClassifier | None = None
-
     start_time = time.time()
     for train_idx, test_idx in tss.split(X):
         X_train = X.iloc[train_idx]
@@ -72,9 +100,7 @@ def train_lightgbm(
         X_test = X.iloc[test_idx]
         y_test = y.iloc[test_idx]
 
-        clf = LGBMClassifier(**LGBM_PARAMS)
-        clf.fit(X_train, y_train)
-        model = clf
+        model = _fit_lightgbm_classifier(X_train, y_train)
 
         y_pred = model.predict(X_test)
         acc = float(accuracy_score(y_test, y_pred))
@@ -86,10 +112,11 @@ def train_lightgbm(
         except Exception:
             auc = float("nan")
         fold_aucs.append(auc)
-    training_time_seconds = time.time() - start_time
-
-    if model is None:
+    if not fold_accuracies:
         raise ValueError("TimeSeriesSplit produced no folds.")
+
+    model = _fit_lightgbm_classifier(X, y)
+    training_time_seconds = time.time() - start_time
 
     mean_auc = float(np.nanmean(fold_aucs))
     mean_accuracy = float(np.mean(fold_accuracies))
@@ -107,14 +134,213 @@ def train_lightgbm(
     return model, metrics
 
 
+def train_lightgbm_panel(
+    X: pd.DataFrame,
+    y: pd.Series,
+    trade_dates: pd.Series,
+    *,
+    categorical_features: Sequence[str] | None = None,
+    n_splits: int = 5,
+) -> Tuple[LGBMClassifier, Dict[str, float | str | List[float] | int]]:
+    """Train a unified LightGBM model with panel-aware date blocking.
+
+    Unlike row-wise ``TimeSeriesSplit``, this splitter operates on unique
+    ``trade_date`` values so that every symbol on the same day lands in the
+    same fold. This avoids leaking same-day panel information across train and
+    test sets.
+    """
+
+    if X.empty:
+        raise ValueError("Feature matrix X is empty.")
+    if y.empty:
+        raise ValueError("Target vector y is empty.")
+    if trade_dates.empty:
+        raise ValueError("trade_dates is empty.")
+    if len(X) != len(y) or len(X) != len(trade_dates):
+        raise ValueError("X, y, and trade_dates must have the same number of rows.")
+
+    date_series = pd.to_datetime(pd.Series(trade_dates)).reset_index(drop=True)
+    order = date_series.sort_values(kind="mergesort").index
+    X_sorted = X.iloc[order].reset_index(drop=True)
+    y_sorted = y.iloc[order].reset_index(drop=True)
+    date_series = date_series.iloc[order].reset_index(drop=True)
+
+    unique_dates = pd.Series(date_series.drop_duplicates().tolist())
+    if len(unique_dates) <= n_splits:
+        raise ValueError(
+            f"Need more than {n_splits} unique trade dates for panel CV; got {len(unique_dates)}."
+        )
+
+    tss = TimeSeriesSplit(n_splits=n_splits)
+    fold_aucs: List[float] = []
+    fold_accuracies: List[float] = []
+
+    start_time = time.time()
+    for train_idx, test_idx in tss.split(unique_dates):
+        train_dates = unique_dates.iloc[train_idx]
+        test_dates = unique_dates.iloc[test_idx]
+
+        train_mask = date_series.isin(train_dates)
+        test_mask = date_series.isin(test_dates)
+        X_train = X_sorted.loc[train_mask]
+        y_train = y_sorted.loc[train_mask]
+        X_test = X_sorted.loc[test_mask]
+        y_test = y_sorted.loc[test_mask]
+
+        model = _fit_lightgbm_classifier(X_train, y_train, categorical_features)
+
+        y_pred = model.predict(X_test)
+        acc = float(accuracy_score(y_test, y_pred))
+        fold_accuracies.append(acc)
+
+        try:
+            proba = model.predict_proba(X_test)[:, 1]
+            auc = float(roc_auc_score(y_test, proba))
+        except Exception:
+            auc = float("nan")
+        fold_aucs.append(auc)
+
+    if not fold_accuracies:
+        raise ValueError("Panel TimeSeriesSplit produced no folds.")
+
+    model = _fit_lightgbm_classifier(X_sorted, y_sorted, categorical_features)
+    training_time_seconds = time.time() - start_time
+
+    mean_auc = float(np.nanmean(fold_aucs))
+    mean_accuracy = float(np.mean(fold_accuracies))
+
+    metrics: Dict[str, float | str | List[float] | int] = {
+        "mean_auc": mean_auc,
+        "mean_accuracy": mean_accuracy,
+        "fold_aucs": fold_aucs,
+        "fold_accuracies": fold_accuracies,
+        "train_test_split": f"PanelTimeSeriesSplit_n{n_splits}",
+        "cv_unit": "trade_date",
+        "n_rows": int(len(X_sorted)),
+        "n_unique_dates": int(len(unique_dates)),
+        "accuracy": mean_accuracy,
+        "auc": mean_auc,
+        "training_time_seconds": training_time_seconds,
+    }
+    return model, metrics
+
+
+def train_lightgbm_panel_with_text(
+    X: pd.DataFrame,
+    y: pd.Series,
+    trade_dates: pd.Series,
+    text_series: pd.Series,
+    *,
+    categorical_features: Sequence[str] | None = None,
+    n_splits: int = 5,
+    text_n_components: int = DEFAULT_TEXT_SVD_COMPONENTS,
+) -> Tuple[LGBMClassifier, Dict[str, float | str | List[float] | int], TextSVDArtifacts | None, pd.DataFrame]:
+    """Train a panel LightGBM with fold-isolated TF-IDF + SVD text features."""
+
+    if len(X) != len(text_series):
+        raise ValueError("X and text_series must have the same number of rows.")
+
+    if X.empty:
+        raise ValueError("Feature matrix X is empty.")
+    if y.empty:
+        raise ValueError("Target vector y is empty.")
+    if trade_dates.empty:
+        raise ValueError("trade_dates is empty.")
+    if len(X) != len(y) or len(X) != len(trade_dates):
+        raise ValueError("X, y, trade_dates, and text_series must have the same number of rows.")
+
+    date_series = pd.to_datetime(pd.Series(trade_dates)).reset_index(drop=True)
+    text_sorted = pd.Series(text_series).reset_index(drop=True)
+    order = date_series.sort_values(kind="mergesort").index
+    X_sorted = X.iloc[order].reset_index(drop=True)
+    y_sorted = y.iloc[order].reset_index(drop=True)
+    date_series = date_series.iloc[order].reset_index(drop=True)
+    text_sorted = text_sorted.iloc[order].reset_index(drop=True)
+
+    unique_dates = pd.Series(date_series.drop_duplicates().tolist())
+    if len(unique_dates) <= n_splits:
+        raise ValueError(
+            f"Need more than {n_splits} unique trade dates for panel CV; got {len(unique_dates)}."
+        )
+
+    tss = TimeSeriesSplit(n_splits=n_splits)
+    fold_aucs: List[float] = []
+    fold_accuracies: List[float] = []
+
+    start_time = time.time()
+    for train_idx, test_idx in tss.split(unique_dates):
+        train_dates = unique_dates.iloc[train_idx]
+        test_dates = unique_dates.iloc[test_idx]
+
+        train_mask = date_series.isin(train_dates)
+        test_mask = date_series.isin(test_dates)
+        X_train_num = X_sorted.loc[train_mask]
+        y_train = y_sorted.loc[train_mask]
+        X_test_num = X_sorted.loc[test_mask]
+        y_test = y_sorted.loc[test_mask]
+        train_text = text_sorted.loc[train_mask]
+        test_text = text_sorted.loc[test_mask]
+
+        X_train_text, X_test_text, _ = fit_text_svd_features(
+            train_text,
+            test_text,
+            n_components=text_n_components,
+        )
+        X_train = _combine_feature_frames(X_train_num, X_train_text)
+        X_test = _combine_feature_frames(X_test_num, X_test_text if X_test_text is not None else X_train_text.iloc[0:0])
+
+        model = _fit_lightgbm_classifier(X_train, y_train, categorical_features)
+
+        y_pred = model.predict(X_test)
+        acc = float(accuracy_score(y_test, y_pred))
+        fold_accuracies.append(acc)
+
+        try:
+            proba = model.predict_proba(X_test)[:, 1]
+            auc = float(roc_auc_score(y_test, proba))
+        except Exception:
+            auc = float("nan")
+        fold_aucs.append(auc)
+
+    if not fold_accuracies:
+        raise ValueError("Panel TimeSeriesSplit produced no folds.")
+
+    X_full_text, _, text_artifacts = fit_text_svd_features(
+        text_sorted,
+        None,
+        n_components=text_n_components,
+    )
+    X_full = _combine_feature_frames(X_sorted, X_full_text)
+    model = _fit_lightgbm_classifier(X_full, y_sorted, categorical_features)
+    training_time_seconds = time.time() - start_time
+
+    mean_auc = float(np.nanmean(fold_aucs))
+    mean_accuracy = float(np.mean(fold_accuracies))
+
+    metrics: Dict[str, float | str | List[float] | int] = {
+        "mean_auc": mean_auc,
+        "mean_accuracy": mean_accuracy,
+        "fold_aucs": fold_aucs,
+        "fold_accuracies": fold_accuracies,
+        "train_test_split": f"PanelTimeSeriesSplit_n{n_splits}",
+        "cv_unit": "trade_date",
+        "n_rows": int(len(X_sorted)),
+        "n_unique_dates": int(len(unique_dates)),
+        "text_svd_components": int(text_n_components),
+        "accuracy": mean_accuracy,
+        "auc": mean_auc,
+        "training_time_seconds": training_time_seconds,
+    }
+    return model, metrics, text_artifacts, X_full
+
+
 def predict_proba_latest(model: LGBMClassifier, X: pd.DataFrame) -> float:
-    """Return the predicted probability of an upward move for the latest row.
+    """Return the predicted probability of the positive class for the latest row.
 
     This utility is intended to be called after training, using the full
-    feature matrix (including both train and test periods). It extracts the
-    last row in ``X`` and returns the model's probability estimate for the
-    positive class (``y = 1``), which corresponds to
-    ``\"next day close > today close\"`` in this project.
+    feature matrix or a single-row inference frame. It extracts the last row in
+    ``X`` and returns the model's probability estimate for the positive class
+    (``y = 1``).
 
     Args:
         model: A trained LightGBM classifier.
@@ -122,7 +348,7 @@ def predict_proba_latest(model: LGBMClassifier, X: pd.DataFrame) -> float:
 
     Returns:
         A float in ``[0, 1]`` representing the model's estimated probability
-        that the next day's return is positive.
+        of the positive class for the latest row.
 
     Raises:
         ValueError: If ``X`` is empty.
