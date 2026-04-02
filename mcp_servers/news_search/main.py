@@ -19,8 +19,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -99,20 +100,21 @@ def search_news_with_tavily(query: str, limit: int = 5) -> dict[str, Any]:
         )
 
 
-def build_app() -> FastAPI:
-    """Create an ASGI app with MCP and health endpoints."""
+def build_app() -> Starlette:
+    """Create an ASGI app with MCP transport and a health endpoint."""
 
-    app = FastAPI()
+    app = mcp.streamable_http_app()
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {
-            "status": "ok",
-            "server": "news_search",
-            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        }
+    async def health(_request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "server": "news_search",
+                "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            }
+        )
 
-    app.mount("/", mcp.streamable_http_app())
+    app.add_route("/health", health, methods=["GET"])
     return app
 
 

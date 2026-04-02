@@ -21,8 +21,9 @@ from typing import Any, Optional, cast
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -455,20 +456,21 @@ def get_stock_history(ticker: str, start_date: str, end_date: str) -> dict[str, 
     return _get_stock_history_impl(ticker, start_date, end_date)
 
 
-def build_app() -> FastAPI:
-    """Create an ASGI app with MCP and health endpoints."""
+def build_app() -> Starlette:
+    """Create an ASGI app with MCP transport and a health endpoint."""
 
-    app = FastAPI()
+    app = mcp.streamable_http_app()
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {
-            "status": "ok",
-            "server": "market_data",
-            "timestamp": _now_iso_utc8(),
-        }
+    async def health(_request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "server": "market_data",
+                "timestamp": _now_iso_utc8(),
+            }
+        )
 
-    app.mount("/", mcp.streamable_http_app())
+    app.add_route("/health", health, methods=["GET"])
     return app
 
 
