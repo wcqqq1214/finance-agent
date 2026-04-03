@@ -22,3 +22,7 @@ test("asset selector cleans up interval and visibility listener", () => {
   );
 });
 
+test("asset selector interval refresh skips when a request is already in flight", () => {
+  assert.match(source, /requestInFlightRef\.current/);
+  assert.match(source, /if\s*\(requestInFlightRef\.current\)\s*\{\s*return;\s*\}/);
+});

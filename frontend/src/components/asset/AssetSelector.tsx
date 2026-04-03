@@ -112,12 +112,18 @@ export function AssetSelector({
 
     // 300000 ms (5 minutes)
     const interval = window.setInterval(() => {
+      if (requestInFlightRef.current) {
+        return;
+      }
       if (document.visibilityState === "visible") {
         void fetchQuotes();
       }
     }, STOCK_POLL_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
+      if (requestInFlightRef.current) {
+        return;
+      }
       if (document.visibilityState !== "visible") {
         return;
       }

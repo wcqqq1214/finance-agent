@@ -10,6 +10,10 @@ test("k line chart registers stock polling with 5 minute interval", () => {
   assert.match(source, /300000/);
 });
 
+test("k line chart polling is explicitly guarded to stocks only", () => {
+  assert.match(source, /if\s*\(assetType\s*!==\s*"stocks"\s*\|\|\s*!selectedStock\)\s*\{/);
+});
+
 test("k line chart gates visibility refresh with cooldown helper", () => {
   assert.match(source, /canRefreshOnVisibility/);
   assert.match(source, /document\.addEventListener\("visibilitychange"/);
@@ -34,4 +38,15 @@ test("k line chart chart-update effect tracks timeRange in dependencies", () => 
 test("k line chart only shows blocking error state when no data exists", () => {
   assert.doesNotMatch(source, /if\s*\(error\)\s*\{/);
   assert.match(source, /if\s*\(error\s*&&\s*ohlcData\.length\s*===\s*0\)\s*\{/);
+});
+
+test("k line chart auto-refresh skips when a request is already in flight", () => {
+  assert.match(source, /requestInFlightRef\.current/);
+  assert.match(source, /if\s*\(requestInFlightRef\.current\)\s*\{\s*return;\s*\}/);
+});
+
+test("k line chart suppresses auto-refresh toast noise once data exists", () => {
+  assert.match(source, /const\s+shouldToast\s*=\s*!isAutoRefresh\s*\|\|\s*latestOhlcDataRef\.current\.length\s*===\s*0/);
+  assert.match(source, /if\s*\(shouldToast\)\s*\{\s*toast\(/);
+  assert.match(source, /void fetchData\(true\)/);
 });

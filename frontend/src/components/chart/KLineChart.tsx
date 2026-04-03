@@ -119,6 +119,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
   const legendRef = useRef<HTMLDivElement>(null);
   const lastRequestStartedAtRef = useRef<number | null>(null);
   const requestInFlightRef = useRef(false);
+  const latestOhlcDataRef = useRef<OHLCRecord[]>([]);
   const { toast } = useToast();
   const [timezoneInfo] = useState(getTimezoneInfo());
   const { resolvedTheme } = useTheme();
@@ -130,10 +131,15 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     setTimeRange(newDefaultRange);
   }, [assetType]);
 
+  useEffect(() => {
+    latestOhlcDataRef.current = ohlcData;
+  }, [ohlcData]);
+
   // Fetch OHLC data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isAutoRefresh = false) => {
     if (!selectedStock) {
       setOhlcData([]);
+      latestOhlcDataRef.current = [];
       return;
     }
 
@@ -198,11 +204,14 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       const message =
         err instanceof Error ? err.message : "Failed to load chart data";
       setError(message);
-      toast({
-        title: "Failed to load chart",
-        description: "Unable to fetch OHLC data",
-        variant: "destructive",
-      });
+      const shouldToast = !isAutoRefresh || latestOhlcDataRef.current.length === 0;
+      if (shouldToast) {
+        toast({
+          title: "Failed to load chart",
+          description: "Unable to fetch OHLC data",
+          variant: "destructive",
+        });
+      }
     } finally {
       requestInFlightRef.current = false;
       setLoading(false);
@@ -219,6 +228,9 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     }
 
     const handleVisibilityChange = () => {
+      if (requestInFlightRef.current) {
+        return;
+      }
       if (document.visibilityState !== "visible") {
         return;
       }
@@ -230,14 +242,17 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
           inFlight: requestInFlightRef.current,
         })
       ) {
-        void fetchData();
+        void fetchData(true);
       }
     };
 
     // 300000 ms (5 minutes)
     const interval = window.setInterval(() => {
+      if (requestInFlightRef.current) {
+        return;
+      }
       if (document.visibilityState === "visible") {
-        void fetchData();
+        void fetchData(true);
       }
     }, STOCK_POLL_INTERVAL_MS);
 
@@ -554,7 +569,9 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
       <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border bg-card">
         <p className="text-sm text-destructive">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => {
+            void fetchData();
+          }}
           className="text-sm text-primary hover:underline"
         >
           Retry
