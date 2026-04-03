@@ -96,6 +96,37 @@ async def enqueue_daily_ohlc_job(app: FastAPI) -> None:
     await update_daily_ohlc()
 
 
+def configure_market_data_jobs(app: FastAPI, scheduler: AsyncIOScheduler) -> None:
+    """Register stock and crypto scheduler jobs."""
+    # Schedule daily crypto data download at 08:00 UTC.
+    scheduler.add_job(daily_crypto_download, "cron", hour=8, minute=0, id="daily_crypto_download")
+    logger.info("✓ Scheduled daily crypto download at 08:00 UTC")
+
+    # Run stock post-close finalization at 16:30 ET.
+    scheduler.add_job(
+        enqueue_daily_ohlc_job,
+        "cron",
+        hour=16,
+        minute=30,
+        args=[app],
+        id="daily_ohlc_update",
+    )
+
+    logger.info("Configuring intraday stock update scheduler...")
+    scheduler.add_job(
+        update_stocks_intraday,
+        trigger=CronTrigger(
+            minute="1,6,11,16,21,26,31,36,41,46,51,56",
+            timezone="America/New_York",
+        ),
+        id="intraday_stock_update",
+        name="Intraday Stock Data Update (5min)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    logger.info("✓ Intraday stock update configured: updates every 5 minutes (ET)")
+
+
 def daily_crypto_download():
     """Download yesterday's crypto data from Binance Vision with catch-up mechanism."""
     logger.info("Starting daily crypto data download...")
@@ -240,33 +271,10 @@ async def lifespan(app: FastAPI):
     catchup_task = asyncio.create_task(background_stock_catchup())
     logger.info("✓ Stock catchup started in background (non-blocking)")
 
-    # Schedule daily crypto data download at 08:00 UTC
-    scheduler.add_job(daily_crypto_download, "cron", hour=8, minute=0, id="daily_crypto_download")
-    logger.info("✓ Scheduled daily crypto download at 08:00 UTC")
-
-    # Update daily after US market close (UTC 21:30 = EST 16:30)
-    scheduler.add_job(
-        enqueue_daily_ohlc_job,
-        "cron",
-        hour=21,
-        minute=30,
-        args=[app],
-        id="daily_ohlc_update",
-    )
-
-    logger.info("Configuring intraday stock update scheduler...")
-    scheduler.add_job(
-        update_stocks_intraday,
-        trigger=CronTrigger(minute="1,16,31,46", timezone="America/New_York"),
-        id="intraday_stock_update",
-        name="Intraday Stock Data Update (15min)",
-        replace_existing=True,
-        max_instances=1,
-    )
-    logger.info("✓ Intraday stock update configured: updates at :01, :16, :31, :46 (ET)")
+    configure_market_data_jobs(app, scheduler)
 
     scheduler.start()
-    logger.info("✓ APScheduler started: updates at :01, :16, :31, :46 (ET)")
+    logger.info("✓ APScheduler started")
 
     yield
 

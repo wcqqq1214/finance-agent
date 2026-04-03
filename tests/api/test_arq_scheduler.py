@@ -1,11 +1,17 @@
 """Tests for ARQ-backed scheduling helpers."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
-from app.api.main import close_arq_pool, create_arq_pool, enqueue_daily_ohlc_job
+from app.api.main import (
+    close_arq_pool,
+    configure_market_data_jobs,
+    create_arq_pool,
+    enqueue_daily_ohlc_job,
+)
 
 
 @pytest.mark.asyncio
@@ -69,3 +75,27 @@ async def test_close_arq_pool_handles_async_close():
     await close_arq_pool(pool)
 
     pool.aclose.assert_awaited_once()
+
+
+def test_configure_market_data_jobs_registers_5_minute_stock_jobs():
+    """Stock scheduler should register intraday and post-close jobs at 5m/16:30 ET."""
+    app = FastAPI()
+    mock_scheduler = Mock()
+
+    configure_market_data_jobs(app, mock_scheduler)
+
+    intraday_call = next(
+        call for call in mock_scheduler.add_job.call_args_list if call.kwargs["id"] == "intraday_stock_update"
+    )
+    post_close_call = next(
+        call for call in mock_scheduler.add_job.call_args_list if call.kwargs["id"] == "daily_ohlc_update"
+    )
+
+    trigger = intraday_call.kwargs["trigger"]
+    assert isinstance(trigger, CronTrigger)
+    assert str(trigger.timezone) == "America/New_York"
+    assert "1,6,11,16,21,26,31,36,41,46,51,56" in str(trigger)
+
+    assert post_close_call.args[1] == "cron"
+    assert post_close_call.kwargs["hour"] == 16
+    assert post_close_call.kwargs["minute"] == 30

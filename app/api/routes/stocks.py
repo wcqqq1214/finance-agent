@@ -22,7 +22,7 @@ MAGNIFICENT_SEVEN = {
 
 # Quote cache (symbol -> (quote, timestamp))
 _QUOTE_CACHE: Dict[str, Tuple[StockQuote, datetime]] = {}
-QUOTE_CACHE_TTL = 60  # seconds - increased to reduce Yahoo Finance API calls
+QUOTE_CACHE_TTL = 285  # seconds - slightly below 5m poll cadence
 
 
 async def _fetch_single_quote(symbol: str) -> StockQuote:
