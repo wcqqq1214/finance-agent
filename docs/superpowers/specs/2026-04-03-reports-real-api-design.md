@@ -72,6 +72,9 @@ Behavior:
 - Extend the FastAPI `Report` schema with `asset_type`.
 - When reading `report.json`, prefer the stored `asset_type`.
 - If an older `report.json` lacks `asset_type`, infer it server-side using the same classification rule and include it in the response.
+- Normalize legacy payload shape at the API layer so the frontend receives a stable contract:
+  - `query` is always a string; use `""` when the historical file does not contain it.
+  - `reports` is always an object with keys `cio`, `quant`, `news`, and `social`; use `null` values when the historical file does not contain the block or omits individual fields.
 - Do not mutate historical report files as part of API reads.
 
 ### Unit 3: Frontend reports page data loading
@@ -101,7 +104,8 @@ Files:
 Behavior:
 - Switch the prop type from the mock-only `AnalysisReport` to the real `Report`.
 - Read the badge from `report.asset_type`.
-- Continue rendering markdown tabs from `report.reports`.
+- Consume the normalized `report.reports` object from the API contract and continue rendering markdown tabs from it.
+- Render a safe fallback when `query` is empty instead of showing `undefined`.
 - Keep the current accordion content structure.
 
 ### Unit 5: Dead code removal
@@ -153,13 +157,17 @@ Rules:
 }
 ```
 
-The API must tolerate old `report.json` files without `asset_type`.
+Compatibility rules:
+- The API must tolerate old `report.json` files without `asset_type`.
+- `query` is always present in the API response as a string. Historical missing values are normalized to `""`.
+- `reports` is always present in the API response as an object with nullable `cio`, `quant`, `news`, and `social` fields. Historical missing blocks are normalized to all-null values.
 
 ## Classification Rules
 
 Use one backend-owned classification helper that returns `"stocks"` or `"crypto"`.
 
 Requirements:
+- Normalize the input before classification by trimming whitespace and uppercasing the asset string.
 - Reuse the existing crypto-aware heuristics already present in the reporting flow.
 - Treat common crypto tickers such as `BTC`, `ETH`, `SOL`, `BNB`, `XRP`, `ADA`, `DOGE`, `AVAX`, `DOT`, and `LINK` as `crypto`.
 - Treat explicit crypto pair formats such as `BTC-USD` as `crypto`.
@@ -179,6 +187,7 @@ The exact helper name can be chosen during implementation, but the rule must liv
 ### Loading behavior
 
 - When the page first loads, show a lightweight loading state rather than immediately rendering the empty-state copy.
+- The loading state should use `Skeleton` placeholders shaped like report rows, not ad hoc text-only placeholders.
 - When refresh is clicked, keep the page shell visible and refresh the list contents once the request resolves.
 
 ### Failure behavior
@@ -210,6 +219,7 @@ Add or extend pytest coverage for:
 - aggregated `report.json` includes `asset_type`
 - new reports API responses include stored `asset_type`
 - historical reports without `asset_type` still return inferred `asset_type`
+- historical reports missing the entire `reports` block still return a normalized `reports` object
 - representative stock and crypto cases classify correctly
 
 Prefer focused tests near existing reporting and API route tests.
@@ -257,6 +267,7 @@ Mitigation:
 - The report card badge still shows `stocks` or `crypto`.
 - `asset_type` is provided by the backend, not guessed in the frontend.
 - Historical reports without `asset_type` still display a correct badge via API fallback.
+- Historical reports without `reports` or `query` still return a frontend-safe normalized API shape.
 - `/reports/[id]` placeholder route is removed.
 - Unused mock report data is removed.
 - Backend pytest coverage exists for the new contract behavior.
