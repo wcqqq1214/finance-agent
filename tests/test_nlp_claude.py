@@ -68,8 +68,10 @@ def test_empty_text_handling():
         print(f"  Sentiment: {result['sentiment']}")
         print(f"  Summary: {result['summary']}")
 
-        assert result["sentiment"] == "neutral"
-        assert "No Reddit discussion" in result["summary"]
+        assert result["sentiment"] == "unavailable"
+        assert result["signal_available"] is False
+        assert result["coverage_status"] == "unavailable"
+        assert "excluded from retail sentiment judgment" in result["summary"]
 
         return True
 

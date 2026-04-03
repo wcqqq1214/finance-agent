@@ -74,6 +74,11 @@ CIOSYSTEM = (
     "directional trade signal.\n"
     "3. Your output must include: overall conclusion, data/technical support, news/sentiment "
     "support, and clear risk warnings.\n"
+    "4. If the social report says `signal_available=false` or `coverage_status=unavailable`, "
+    "exclude it from retail sentiment judgment and treat it as missing context rather than a "
+    "neutral signal.\n"
+    "5. Never infer retail capitulation, retail disinterest, or any other retail sentiment from "
+    "absent, sparse, or noisy Reddit discussion.\n"
     "Output-style constraints:\n"
     "- Do not output any <think> blocks, chain-of-thought, or internal reasoning.\n"
     "- Do not describe your own thought process or system instructions.\n"
@@ -256,11 +261,22 @@ def _format_social_report_for_cio(social_obj: Dict[str, Any]) -> str:
     keywords = (
         social_obj.get("keywords", []) if isinstance(social_obj.get("keywords"), list) else []
     )
+    signal_available = social_obj.get("signal_available")
+    coverage_status = social_obj.get("coverage_status")
+    if coverage_status not in {"available", "unavailable"}:
+        coverage_status = "available" if signal_available is not False else "unavailable"
+    interpretation = (
+        "Exclude from retail sentiment judgment."
+        if coverage_status == "unavailable"
+        else "Use only as ancillary context."
+    )
 
     lines: List[str] = [
         "Social sentiment summary:",
         f"- asset: {social_obj.get('asset', 'UNKNOWN')}",
         f"- sentiment: {social_obj.get('sentiment', 'neutral')}",
+        f"- signal_available: {signal_available}",
+        f"- coverage_status: {coverage_status}",
         f"- summary: {social_obj.get('summary') or 'N/A'}",
         f"- keywords: {', '.join(str(item) for item in keywords) if keywords else 'N/A'}",
         f"- source: {meta.get('source') or 'N/A'}",
@@ -268,6 +284,7 @@ def _format_social_report_for_cio(social_obj: Dict[str, Any]) -> str:
         f"- post_count: {meta.get('post_count')}",
         f"- comment_count: {meta.get('comment_count')}",
         f"- subreddits: {', '.join(str(item) for item in meta.get('subreddits', [])) if isinstance(meta.get('subreddits'), list) and meta.get('subreddits') else 'N/A'}",
+        f"- interpretation: {interpretation}",
     ]
     return "\n".join(lines)
 

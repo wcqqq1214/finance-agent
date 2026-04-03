@@ -17,15 +17,18 @@ load_dotenv()
 
 
 # Inter-agent structured data should be in English.
-SentimentLabel = Literal["panic", "bearish", "neutral", "bullish", "euphoric"]
+SentimentLabel = Literal["panic", "bearish", "neutral", "bullish", "euphoric", "unavailable"]
+CoverageStatus = Literal["available", "unavailable"]
 
 
-class SocialNlpResult(TypedDict):
+class SocialNlpResult(TypedDict, total=False):
     """Structured result schema for Social Agent NLP output."""
 
     sentiment: SentimentLabel
     keywords: List[str]
     summary: str
+    signal_available: bool
+    coverage_status: CoverageStatus
 
 
 _JSON_BLOCK_RE = re.compile(r"\{[\s\S]*?\}", flags=re.MULTILINE)
@@ -80,7 +83,7 @@ def _validate_result(obj: Dict[str, Any]) -> SocialNlpResult:
     keywords = _normalize_keywords(obj.get("keywords"))
     summary = obj.get("summary")
 
-    allowed: List[str] = ["panic", "bearish", "neutral", "bullish", "euphoric"]
+    allowed: List[str] = ["panic", "bearish", "neutral", "bullish", "euphoric", "unavailable"]
     if sentiment not in allowed:
         raise ValueError(f"Invalid sentiment={sentiment!r}. Must be one of {allowed}.")
     if not isinstance(summary, str) or not summary.strip():
@@ -92,10 +95,36 @@ def _validate_result(obj: Dict[str, Any]) -> SocialNlpResult:
     if len(summary_clean) > 300:
         summary_clean = summary_clean[:299] + "…"
 
+    raw_signal_available = obj.get("signal_available")
+    signal_available = raw_signal_available if isinstance(raw_signal_available, bool) else True
+    coverage_status_raw = obj.get("coverage_status")
+    coverage_status = (
+        cast(CoverageStatus, coverage_status_raw)
+        if coverage_status_raw in {"available", "unavailable"}
+        else cast(CoverageStatus, "available" if signal_available else "unavailable")
+    )
+    if coverage_status == "unavailable":
+        signal_available = False
+        sentiment = "unavailable"
+
     return SocialNlpResult(
         sentiment=cast(SentimentLabel, sentiment),
         keywords=keywords,
         summary=summary_clean,
+        signal_available=signal_available,
+        coverage_status=coverage_status,
+    )
+
+
+def _build_unavailable_result(summary: str) -> SocialNlpResult:
+    """Build a deterministic no-signal payload for downstream consumers."""
+
+    return SocialNlpResult(
+        sentiment=cast(SentimentLabel, "unavailable"),
+        keywords=[],
+        summary=summary,
+        signal_available=False,
+        coverage_status=cast(CoverageStatus, "unavailable"),
     )
 
 
@@ -109,8 +138,9 @@ def analyze_reddit_text(asset: str, text: str) -> SocialNlpResult:
 
     The output schema is intentionally strict so that the downstream CIO
     aggregation step can treat it as structured data rather than natural
-    language. The model is instructed to output **only** a JSON object with
-    exactly three keys:
+    language. For normal Reddit coverage, the model is instructed to output
+    **only** a JSON object with sentiment, keywords, and summary. The tool then
+    adds availability metadata for downstream governance.
 
     - ``sentiment``: one of ``panic`` / ``bearish`` / ``neutral`` / ``bullish`` / ``euphoric``\n
     - ``keywords``: an array of 5 short keyword strings driving the sentiment\n
@@ -129,7 +159,7 @@ def analyze_reddit_text(asset: str, text: str) -> SocialNlpResult:
 
     Returns:
         A ``SocialNlpResult`` dictionary containing ``sentiment``, ``keywords``,
-        and ``summary``.
+        ``summary``, and signal-availability metadata.
 
     Raises:
         RuntimeError: If required environment variables are missing.
@@ -144,10 +174,8 @@ def analyze_reddit_text(asset: str, text: str) -> SocialNlpResult:
     # Graceful degradation when Reddit ingestion returns no content
     # (for example, Reddit is unreachable in the current environment).
     if not text_norm or "No posts fetched from Reddit" in text_norm:
-        return SocialNlpResult(
-            sentiment=cast(SentimentLabel, "neutral"),
-            keywords=[],
-            summary="No Reddit discussion text was available in the last 24 hours; sentiment defaults to neutral.",
+        return _build_unavailable_result(
+            "Reddit social signal unavailable; excluded from retail sentiment judgment because no usable discussion data was captured in the last 24 hours."
         )
 
     system = (

@@ -162,3 +162,66 @@ def test_cio_node_writes_crypto_asset_type_into_report_json(tmp_path: Path, monk
     report_obj = json.loads(report_path.read_text(encoding="utf-8"))
     assert report_obj["symbol"] == "BTC-USD"
     assert report_obj["asset_type"] == "crypto"
+
+
+def test_cio_node_excludes_unavailable_social_signal_from_sentiment_judgment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeLLM:
+        def invoke(self, messages, config=None):
+            captured["messages"] = messages
+            return SimpleNamespace(content="CIO final decision")
+
+    monkeypatch.setattr(graph_multi, "create_llm", lambda: FakeLLM())
+
+    state: AgentState = {
+        "query": "Analyze MSFT",
+        "run_id": "20260403_220000",
+        "run_dir": str(tmp_path),
+        "quant_report_obj": {
+            "asset": "MSFT",
+            "trend": "bearish",
+            "summary": "Technical summary",
+            "markdown_report": "# Quantitative Technical Report\n",
+        },
+        "news_report_obj": {
+            "module": "news",
+            "summary": "Macro headline",
+            "markdown_report": "# Macro News Sentiment Report\n",
+        },
+        "social_report_obj": {
+            "module": "social",
+            "asset": "MSFT",
+            "sentiment": "unavailable",
+            "signal_available": False,
+            "coverage_status": "unavailable",
+            "summary": (
+                "Reddit social signal unavailable; excluded from retail sentiment judgment."
+            ),
+            "keywords": [],
+            "meta": {
+                "source": "json",
+                "window": "last 24h (time_filter=day)",
+                "post_count": 0,
+                "comment_count": 0,
+                "subreddits": ["stocks", "investing"],
+            },
+        },
+        "quant_report_path": str(tmp_path / "quant.json"),
+        "news_report_path": str(tmp_path / "news.json"),
+        "social_report_path": str(tmp_path / "social.json"),
+    }
+
+    graph_multi._cio_node(state)
+
+    system_message = captured["messages"][0]
+    system_content = str(getattr(system_message, "content", ""))
+    human_message = captured["messages"][1]
+    human_content = str(getattr(human_message, "content", ""))
+
+    assert "exclude it from retail sentiment judgment" in system_content
+    assert "Never infer retail capitulation" in system_content
+    assert "signal_available: False" in human_content
+    assert "coverage_status: unavailable" in human_content

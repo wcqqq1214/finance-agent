@@ -22,6 +22,8 @@ class SocialBundle(TypedDict, total=False):
     module: str
     meta: Dict[str, Any]
     sentiment: str
+    signal_available: bool
+    coverage_status: str
     keywords: list[str]
     summary: str
     markdown_report: str
@@ -42,6 +44,10 @@ def _build_social_markdown(report: Dict[str, Any]) -> str:
     asset = str(report.get("asset", "UNKNOWN")).upper()
     sentiment = _format_markdown_value(report.get("sentiment"))
     summary = str(report.get("summary") or "No social summary available.")
+    signal_available = bool(report.get("signal_available", report.get("sentiment") != "unavailable"))
+    coverage_status = str(
+        report.get("coverage_status") or ("available" if signal_available else "unavailable")
+    )
     keywords = report.get("keywords", []) if isinstance(report.get("keywords"), list) else []
     meta = report.get("meta", {}) if isinstance(report.get("meta"), dict) else {}
     subreddits = meta.get("subreddits", []) if isinstance(meta.get("subreddits"), list) else []
@@ -52,6 +58,8 @@ def _build_social_markdown(report: Dict[str, Any]) -> str:
         "## Sentiment Snapshot",
         f"- **Asset**: `{asset}`",
         f"- **Sentiment**: `{sentiment}`",
+        f"- **Signal available**: `{'yes' if signal_available else 'no'}`",
+        f"- **Coverage status**: `{coverage_status}`",
         f"- **Summary**: {summary}",
         "",
         "## Keywords",
@@ -79,7 +87,49 @@ def _build_social_markdown(report: Dict[str, Any]) -> str:
         ]
     )
 
+    if not signal_available:
+        lines.extend(
+            [
+                "",
+                "## Interpretation Rule",
+                "- Exclude this report from retail sentiment judgment because Reddit coverage was unavailable or unreliable for this run.",
+            ]
+        )
+
     return "\n".join(lines)
+
+
+def _coerce_social_signal(
+    nlp_result: Dict[str, Any],
+    ingest_meta: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Normalize no-signal Reddit coverage into an explicit unavailable payload."""
+
+    post_count = ingest_meta.get("post_count") or 0
+    comment_count = ingest_meta.get("comment_count") or 0
+    zero_coverage = post_count == 0 and comment_count == 0
+    explicit_unavailable = (
+        nlp_result.get("signal_available") is False
+        or nlp_result.get("coverage_status") == "unavailable"
+        or nlp_result.get("sentiment") == "unavailable"
+    )
+
+    if zero_coverage or explicit_unavailable:
+        return {
+            **dict(nlp_result),
+            "sentiment": "unavailable",
+            "keywords": [],
+            "summary": (
+                "Reddit social signal unavailable; excluded from retail sentiment judgment because no usable discussion data was captured in the last 24 hours."
+            ),
+            "signal_available": False,
+            "coverage_status": "unavailable",
+        }
+
+    out = dict(nlp_result)
+    out.setdefault("signal_available", True)
+    out.setdefault("coverage_status", "available")
+    return out
 
 
 def generate_report(asset: str, run_dir: str) -> SocialBundle:
@@ -100,6 +150,7 @@ def generate_report(asset: str, run_dir: str) -> SocialBundle:
         Dict[str, Any],
         analyze_reddit_text.invoke({"asset": asset_norm, "text": corpus}),
     )
+    nlp_result = _coerce_social_signal(nlp_result, ingest_meta)
     report_obj = cast(
         Dict[str, Any],
         build_social_report.invoke(

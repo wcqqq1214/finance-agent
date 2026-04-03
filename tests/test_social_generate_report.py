@@ -86,3 +86,55 @@ def test_generate_report_includes_markdown_report(tmp_path, monkeypatch):
 
     saved = json.loads(Path(tmp_path, "social.json").read_text(encoding="utf-8"))
     assert saved["markdown_report"] == report["markdown_report"]
+
+
+def test_generate_report_marks_zero_coverage_as_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        social_generate_report,
+        "get_reddit_discussion",
+        SimpleNamespace(invoke=lambda payload: "reddit corpus"),
+    )
+    monkeypatch.setattr(
+        social_generate_report,
+        "extract_ingest_meta_from_text",
+        lambda text: {
+            "source": "json",
+            "window": "24h",
+            "subreddits": ["stocks", "wallstreetbets"],
+            "post_count": 0,
+            "comment_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        social_generate_report,
+        "analyze_reddit_text",
+        SimpleNamespace(
+            invoke=lambda payload: {
+                "sentiment": "bullish",
+                "keywords": ["AI", "earnings", "momentum"],
+                "summary": "Retail sentiment remains constructive.",
+                "signal_available": True,
+                "coverage_status": "available",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        social_generate_report,
+        "build_social_report",
+        SimpleNamespace(
+            invoke=lambda payload: {
+                "asset": payload["asset"],
+                "meta": payload["meta"],
+                **payload["nlp_result"],
+            }
+        ),
+    )
+
+    report = social_generate_report.generate_report("MSFT", str(tmp_path))
+
+    assert report["signal_available"] is False
+    assert report["coverage_status"] == "unavailable"
+    assert report["sentiment"] == "unavailable"
+    assert report["keywords"] == []
+    assert "excluded from retail sentiment judgment" in report["summary"]
+    assert "`no`" in report["markdown_report"].lower()
