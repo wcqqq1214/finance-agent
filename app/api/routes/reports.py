@@ -4,12 +4,33 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException
 
+from app.reporting.asset_type import normalize_asset_type
+
 from ..models import Report
+from ..models.schemas import ReportTexts
 
 router = APIRouter()
 
 # Path to reports directory
 REPORTS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "reports"
+
+
+def _build_report_response(report_id: str, data: dict) -> Report:
+    symbol = data.get("symbol") or "UNKNOWN"
+    reports_block = data.get("reports")
+    reports_payload = reports_block if isinstance(reports_block, dict) else {}
+    return Report(
+        id=report_id,
+        symbol=symbol,
+        asset_type=normalize_asset_type(data.get("asset_type"), symbol),
+        timestamp=data.get("timestamp", ""),
+        query=data.get("query") or "",
+        final_decision=data.get("final_decision"),
+        quant_analysis=data.get("quant_analysis"),
+        news_sentiment=data.get("news_sentiment"),
+        social_sentiment=data.get("social_sentiment"),
+        reports=ReportTexts(**reports_payload),
+    )
 
 
 @router.get("/reports", response_model=List[Report])
@@ -29,21 +50,9 @@ async def get_reports():
             continue
 
         try:
-            with open(report_file, "r") as f:
+            with open(report_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                reports.append(
-                    Report(
-                        id=report_dir.name,
-                        symbol=data.get("symbol", "UNKNOWN"),
-                        timestamp=data.get("timestamp", ""),
-                        query=data.get("query"),
-                        final_decision=data.get("final_decision"),
-                        quant_analysis=data.get("quant_analysis"),
-                        news_sentiment=data.get("news_sentiment"),
-                        social_sentiment=data.get("social_sentiment"),
-                        reports=data.get("reports"),
-                    )
-                )
+                reports.append(_build_report_response(report_dir.name, data))
         except Exception:
             # Skip invalid reports
             continue
@@ -63,18 +72,8 @@ async def get_report(report_id: str):
         raise HTTPException(status_code=404, detail="Report file not found")
 
     try:
-        with open(report_file, "r") as f:
+        with open(report_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return Report(
-                id=report_id,
-                symbol=data.get("symbol", "UNKNOWN"),
-                timestamp=data.get("timestamp", ""),
-                query=data.get("query"),
-                final_decision=data.get("final_decision"),
-                quant_analysis=data.get("quant_analysis"),
-                news_sentiment=data.get("news_sentiment"),
-                social_sentiment=data.get("social_sentiment"),
-                reports=data.get("reports"),
-            )
+            return _build_report_response(report_id, data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading report: {str(e)}") from e

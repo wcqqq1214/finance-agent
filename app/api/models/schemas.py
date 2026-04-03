@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,13 +22,14 @@ class ReportTexts(BaseModel):
 class Report(BaseModel):
     id: str
     symbol: str
+    asset_type: Literal["stocks", "crypto"] = "stocks"
     timestamp: str
-    query: Optional[str] = None
+    query: str = ""
     final_decision: Optional[str] = None
     quant_analysis: Optional[Dict[str, Any]] = None
     news_sentiment: Optional[Dict[str, Any]] = None
     social_sentiment: Optional[Dict[str, Any]] = None
-    reports: Optional[ReportTexts] = None
+    reports: ReportTexts = Field(default_factory=ReportTexts)
 
 
 class ServiceStatus(BaseModel):

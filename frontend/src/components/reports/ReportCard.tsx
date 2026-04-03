@@ -11,14 +11,18 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { markdownSummary } from "@/lib/strip-markdown";
-import type { AnalysisReport } from "@/lib/mock-data/reports";
+import type { Report } from "@/lib/types";
 
 interface ReportCardProps {
-  report: AnalysisReport;
+  report: Report;
 }
 
 function formatTimestamp(iso: string): string {
+  if (!iso) return "Unknown time";
+
   const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+
   const cutoff = subHours(new Date(), 24);
   if (isAfter(date, cutoff)) {
     return formatDistanceToNow(date, { addSuffix: true });
@@ -29,8 +33,14 @@ function formatTimestamp(iso: string): string {
 const TAB_EMPTY = "No report available.";
 
 export function ReportCard({ report }: ReportCardProps) {
+  const cioText = report.reports?.cio ?? null;
+  const quantText = report.reports?.quant ?? null;
+  const newsText = report.reports?.news ?? null;
+  const socialText = report.reports?.social ?? null;
+
   const summary =
-    markdownSummary(report.reports.cio, 200) || "No summary available.";
+    markdownSummary(report.reports?.cio ?? "", 200) ||
+    "No summary available.";
 
   return (
     <AccordionItem value={report.id} className="rounded-lg border px-4">
@@ -39,13 +49,15 @@ export function ReportCard({ report }: ReportCardProps) {
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold">{report.symbol}</span>
             <Badge variant="outline" className="text-xs">
-              {report.assetType}
+              {report.asset_type}
             </Badge>
             <span className="ml-auto text-xs text-muted-foreground">
               {formatTimestamp(report.timestamp)}
             </span>
           </div>
-          <p className="truncate text-sm text-foreground">{report.query}</p>
+          <p className="truncate text-sm text-foreground">
+            {report.query || "No query available."}
+          </p>
           <p className="line-clamp-2 text-xs text-muted-foreground">
             {summary}
           </p>
@@ -62,32 +74,32 @@ export function ReportCard({ report }: ReportCardProps) {
           </TabsList>
 
           <TabsContent value="cio">
-            {report.reports.cio ? (
-              <MarkdownRenderer content={report.reports.cio} />
+            {cioText ? (
+              <MarkdownRenderer content={cioText} />
             ) : (
               <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
             )}
           </TabsContent>
 
           <TabsContent value="quant">
-            {report.reports.quant ? (
-              <MarkdownRenderer content={report.reports.quant} />
+            {quantText ? (
+              <MarkdownRenderer content={quantText} />
             ) : (
               <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
             )}
           </TabsContent>
 
           <TabsContent value="news">
-            {report.reports.news ? (
-              <MarkdownRenderer content={report.reports.news} />
+            {newsText ? (
+              <MarkdownRenderer content={newsText} />
             ) : (
               <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
             )}
           </TabsContent>
 
           <TabsContent value="social">
-            {report.reports.social ? (
-              <MarkdownRenderer content={report.reports.social} />
+            {socialText ? (
+              <MarkdownRenderer content={socialText} />
             ) : (
               <p className="text-sm text-muted-foreground">{TAB_EMPTY}</p>
             )}
