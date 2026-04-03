@@ -20,4 +20,3 @@ export function canRefreshOnVisibility(input: VisibilityRefreshInput): boolean {
   const cooldownMs = input.cooldownMs ?? VISIBILITY_REFRESH_COOLDOWN_MS;
   return input.now - input.lastRequestStartedAt >= cooldownMs;
 }
-
