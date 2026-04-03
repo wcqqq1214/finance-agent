@@ -51,7 +51,9 @@ async def test_enqueue_daily_ohlc_job_uses_arq_when_available():
     with patch("app.api.main.update_daily_ohlc", new=AsyncMock()) as mock_update:
         await enqueue_daily_ohlc_job(app)
 
-    app.state.arq_pool.enqueue_job.assert_awaited_once_with("update_daily_ohlc")
+    app.state.arq_pool.enqueue_job.assert_awaited_once_with(
+        "update_daily_ohlc", overwrite_existing=True
+    )
     mock_update.assert_not_awaited()
 
 
@@ -64,7 +66,7 @@ async def test_enqueue_daily_ohlc_job_falls_back_without_arq():
     with patch("app.api.main.update_daily_ohlc", new=AsyncMock()) as mock_update:
         await enqueue_daily_ohlc_job(app)
 
-    mock_update.assert_awaited_once()
+    mock_update.assert_awaited_once_with(overwrite_existing=True)
 
 
 @pytest.mark.asyncio

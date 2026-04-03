@@ -88,12 +88,12 @@ async def enqueue_daily_ohlc_job(app: FastAPI) -> None:
     """Enqueue the OHLC update job or fall back to local execution."""
     arq_pool = getattr(app.state, "arq_pool", None)
     if arq_pool is not None:
-        await arq_pool.enqueue_job("update_daily_ohlc")
+        await arq_pool.enqueue_job("update_daily_ohlc", overwrite_existing=True)
         logger.info("Enqueued daily OHLC update task to ARQ")
         return
 
     logger.warning("ARQ pool unavailable, running daily OHLC update in-process")
-    await update_daily_ohlc()
+    await update_daily_ohlc(overwrite_existing=True)
 
 
 def configure_market_data_jobs(app: FastAPI, scheduler: AsyncIOScheduler) -> None:

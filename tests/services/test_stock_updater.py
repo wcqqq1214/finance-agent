@@ -125,3 +125,32 @@ def test_fetch_recent_ohlc_multi_symbol_multiindex():
 
     assert result["AAPL"][0]["close"] == 1.0
     assert result["MSFT"][0]["close"] == 2.0
+
+
+def test_fetch_recent_ohlc_batches_symbols_in_single_download_call():
+    """fetch_recent_ohlc should batch requested symbols into one download call."""
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("AAPL", "Open"),
+            ("AAPL", "Close"),
+            ("AAPL", "High"),
+            ("AAPL", "Low"),
+            ("AAPL", "Volume"),
+            ("MSFT", "Open"),
+            ("MSFT", "Close"),
+            ("MSFT", "High"),
+            ("MSFT", "Low"),
+            ("MSFT", "Volume"),
+        ]
+    )
+    data = pd.DataFrame(
+        [[1.5, 1.0, 2.0, 0.5, 100, 2.5, 2.0, 3.0, 1.5, 200]],
+        index=pd.DatetimeIndex(["2026-03-24"], tz="UTC"),
+        columns=columns,
+    )
+
+    with patch("app.services.stock_updater.yf.download", return_value=data) as mock_download:
+        fetch_recent_ohlc(["AAPL", "MSFT"], days=5)
+
+    mock_download.assert_called_once()
+    assert mock_download.call_args.kwargs["tickers"] == ["AAPL", "MSFT"]

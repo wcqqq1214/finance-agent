@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-from app.database import update_metadata, upsert_ohlc
+from app.database import update_metadata, upsert_ohlc, upsert_ohlc_overwrite
 from app.mcp_client.finance_client import call_get_stock_history
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 SYMBOLS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
 
-async def update_daily_ohlc(ctx: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+async def update_daily_ohlc(
+    ctx: Optional[Dict[str, Any]] = None, overwrite_existing: bool = False
+) -> Dict[str, int]:
     """Update all stocks with latest data for scheduler or ARQ usage."""
     today = datetime.now().date()
     yesterday = today - timedelta(days=1)
@@ -27,12 +29,13 @@ async def update_daily_ohlc(ctx: Optional[Dict[str, Any]] = None) -> Dict[str, i
 
     success_count = 0
     total_records = 0
+    writer = upsert_ohlc_overwrite if overwrite_existing else upsert_ohlc
 
     for symbol in SYMBOLS:
         try:
             data = await asyncio.to_thread(call_get_stock_history, symbol, start_date, end_date)
             if data:
-                await asyncio.to_thread(upsert_ohlc, symbol, data)
+                await asyncio.to_thread(writer, symbol, data)
                 await asyncio.to_thread(update_metadata, symbol, start_date, end_date)
                 total_records += len(data)
                 success_count += 1

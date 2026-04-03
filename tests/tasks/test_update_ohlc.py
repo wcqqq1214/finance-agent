@@ -38,6 +38,33 @@ async def test_update_daily_ohlc_returns_summary_with_redis_ctx():
 
 
 @pytest.mark.asyncio
+async def test_update_daily_ohlc_uses_overwrite_writer_when_requested():
+    """When overwrite_existing=True, task should use overwrite writer."""
+    with patch("app.tasks.update_ohlc.SYMBOLS", ["AAPL", "MSFT"]):
+        with patch("app.tasks.update_ohlc.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+
+            def run_sync(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = run_sync
+
+            with patch(
+                "app.tasks.update_ohlc.call_get_stock_history",
+                return_value=[{"date": "2026-03-25"}],
+            ):
+                with patch("app.tasks.update_ohlc.upsert_ohlc", new=Mock()) as mock_upsert:
+                    with patch(
+                        "app.tasks.update_ohlc.upsert_ohlc_overwrite", new=Mock()
+                    ) as mock_upsert_overwrite:
+                        with patch("app.tasks.update_ohlc.update_metadata", new=Mock()):
+                            result = await update_daily_ohlc(overwrite_existing=True)
+
+    assert result == {"success": 2, "failed": 0, "total_records": 2}
+    assert mock_upsert.call_count == 0
+    assert mock_upsert_overwrite.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_update_daily_ohlc_counts_failures():
     """Task should continue processing when one symbol fails."""
     with patch("app.tasks.update_ohlc.SYMBOLS", ["AAPL", "MSFT"]):
