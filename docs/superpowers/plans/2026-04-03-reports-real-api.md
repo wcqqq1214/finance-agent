@@ -28,6 +28,8 @@
   Responsibility: verify newly written aggregated reports include `asset_type`.
 - Modify: `frontend/src/lib/types.ts`
   Responsibility: align frontend `Report` type with the real backend contract.
+- Modify: `frontend/src/lib/api.ts`
+  Responsibility: disable caching for `getReports()` so manual refresh fetches fresh report data.
 - Modify: `frontend/src/components/reports/ReportCard.tsx`
   Responsibility: consume the real `Report` type and keep rendering safely from normalized fields.
 - Create: `frontend/src/components/reports/ReportsListSkeleton.tsx`
@@ -98,11 +100,14 @@ def classify_asset_type(asset: str) -> AssetType:
 
 ```python
 # app/graph_multi.py
-from app.reporting.asset_type import classify_asset_type
+from app.reporting.asset_type import CRYPTO_TICKERS, classify_asset_type
 
 # inside _build_aggregated_report return payload
 "symbol": asset,
 "asset_type": classify_asset_type(asset),
+
+# inside _extract_asset_from_query(...)
+# remove the local hard-coded crypto set and reuse CRYPTO_TICKERS
 ```
 
 - [ ] **Step 4: Run the tests again and confirm they pass**
@@ -131,6 +136,7 @@ git commit -m "feat(reporting): persist asset type in aggregated reports"
 
 ```python
 def test_get_reports_returns_stored_asset_type(tmp_path, monkeypatch):
+    import json
     from fastapi.testclient import TestClient
     from app.api.main import app
 
@@ -150,6 +156,7 @@ def test_get_reports_returns_stored_asset_type(tmp_path, monkeypatch):
 
 
 def test_get_reports_normalizes_legacy_report_without_asset_type_or_reports(tmp_path, monkeypatch):
+    import json
     from fastapi.testclient import TestClient
     from app.api.main import app
 
@@ -169,6 +176,7 @@ def test_get_reports_normalizes_legacy_report_without_asset_type_or_reports(tmp_
 
 
 def test_get_report_detail_applies_same_normalization(tmp_path, monkeypatch):
+    import json
     from fastapi.testclient import TestClient
     from app.api.main import app
 
@@ -199,7 +207,7 @@ Expected:
 
 ```python
 # app/api/models/schemas.py
-from typing import Literal
+from typing import Any, Dict, List, Literal, Optional
 
 class ReportTexts(BaseModel):
     cio: Optional[str] = None
@@ -224,7 +232,8 @@ class Report(BaseModel):
 ```python
 # app/api/routes/reports.py
 from app.reporting.asset_type import classify_asset_type
-from ..models import Report, ReportTexts
+from ..models import Report
+from ..models.schemas import ReportTexts
 
 
 def _build_report_response(report_id: str, data: dict) -> Report:
@@ -264,6 +273,7 @@ git commit -m "feat(api): normalize reports contract for real reports page"
 
 **Files:**
 - Modify: `frontend/src/lib/types.ts`
+- Modify: `frontend/src/lib/api.ts`
 - Modify: `frontend/src/components/reports/ReportCard.tsx`
 - Modify: `frontend/src/app/reports/page.tsx`
 
@@ -379,6 +389,14 @@ export default function ReportsPage() {
 ```
 
 ```tsx
+// frontend/src/lib/api.ts
+getReports: () =>
+  fetchAPI<Report[]>("/api/reports", {
+    cache: "no-store",
+  }),
+```
+
+```tsx
 // frontend/src/components/reports/ReportCard.tsx
 const summary =
   markdownSummary(report.reports.cio ?? "", 200) || "No summary available.";
@@ -406,7 +424,7 @@ Expected:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/lib/types.ts frontend/src/components/reports/ReportCard.tsx frontend/src/app/reports/page.tsx
+git add frontend/src/lib/types.ts frontend/src/lib/api.ts frontend/src/components/reports/ReportCard.tsx frontend/src/app/reports/page.tsx
 git commit -m "feat(frontend): wire reports page to backend data"
 ```
 
@@ -425,7 +443,7 @@ Add the render branches and button usage before the helper component exists:
 "use client";
 
 import { useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { Report } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ReportsListSkeleton } from "@/components/reports/ReportsListSkeleton";
@@ -449,7 +467,7 @@ export default function ReportsPage() {
           </p>
         </div>
         <Button onClick={() => void loadReports(true)} disabled={isLoading || isRefreshing}>
-          <RefreshCwIcon data-icon="inline-start" />
+          <RefreshCw data-icon="inline-start" />
           Refresh
         </Button>
       </div>
@@ -487,7 +505,7 @@ export function ReportsListSkeleton() {
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Report } from "@/lib/types";
 import { ReportCard } from "@/components/reports/ReportCard";
@@ -528,7 +546,7 @@ export default function ReportsPage() {
           </p>
         </div>
         <Button onClick={() => void loadReports(true)} disabled={isLoading || isRefreshing}>
-          <RefreshCwIcon
+          <RefreshCw
             data-icon="inline-start"
             className={isRefreshing ? "animate-spin" : undefined}
           />
