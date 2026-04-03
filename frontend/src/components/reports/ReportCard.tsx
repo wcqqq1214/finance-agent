@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { markdownSummary } from "@/lib/strip-markdown";
 import type { Report } from "@/lib/types";
+import { getReportQueryDisplay } from "./report-card-helpers";
 
 interface ReportCardProps {
   report: Report;
@@ -41,6 +42,7 @@ export function ReportCard({ report }: ReportCardProps) {
   const summary =
     markdownSummary(report.reports?.cio ?? "", 200) ||
     "No summary available.";
+  const displayQuery = getReportQueryDisplay(report.query, report.symbol);
 
   return (
     <AccordionItem value={report.id} className="rounded-lg border px-4">
@@ -56,7 +58,7 @@ export function ReportCard({ report }: ReportCardProps) {
             </span>
           </div>
           <p className="truncate text-sm text-foreground">
-            {report.query || "No query available."}
+            {displayQuery || "No query available."}
           </p>
           <p className="line-clamp-2 text-xs text-muted-foreground">
             {summary}
@@ -67,10 +69,10 @@ export function ReportCard({ report }: ReportCardProps) {
       <AccordionContent className="pb-4">
         <Tabs defaultValue="cio">
           <TabsList className="mb-4">
-            <TabsTrigger value="cio">CIO 决策</TabsTrigger>
-            <TabsTrigger value="quant">Quant 分析</TabsTrigger>
-            <TabsTrigger value="news">News 情绪</TabsTrigger>
-            <TabsTrigger value="social">Social 情绪</TabsTrigger>
+            <TabsTrigger value="cio">CIO Decision</TabsTrigger>
+            <TabsTrigger value="quant">Quant Analysis</TabsTrigger>
+            <TabsTrigger value="news">News Sentiment</TabsTrigger>
+            <TabsTrigger value="social">Social Sentiment</TabsTrigger>
           </TabsList>
 
           <TabsContent value="cio">
