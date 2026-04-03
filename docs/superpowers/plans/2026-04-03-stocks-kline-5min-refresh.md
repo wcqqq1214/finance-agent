@@ -272,6 +272,8 @@ Expected: FAIL because the helper does not exist yet.
 - [ ] **Step 1: Write the failing source-level card polling tests**
 
 ```ts
+const source = readFileSync(new URL("./AssetSelector.tsx", import.meta.url), "utf8");
+
 test("asset selector polls every 300000 ms", () => {
   assert.match(source, /300000/);
 });
@@ -320,6 +322,16 @@ const fetchQuotes = useCallback(async (isManual = false) => {
     requestInFlightRef.current = false;
   }
 }, [...]);
+
+useEffect(() => {
+  const handleVisibilityChange = () => { ... };
+  const interval = window.setInterval(() => { ... }, STOCK_POLL_INTERVAL_MS);
+
+  return () => {
+    window.clearInterval(interval);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}, [fetchQuotes]);
 ```
 
 - [ ] **Step 5: Run focused frontend tests**
@@ -338,6 +350,8 @@ Expected: PASS
 - [ ] **Step 1: Write the failing source-level K-line tests**
 
 ```ts
+const source = readFileSync(new URL("./KLineChart.tsx", import.meta.url), "utf8");
+
 test("k line chart registers 5 minute polling for stocks", () => {
   assert.match(source, /setInterval/);
   assert.match(source, /300000/);
@@ -360,10 +374,15 @@ Expected: FAIL because the chart has no polling effect and no visibility-return 
 useEffect(() => {
   if (assetType !== "stocks" || !selectedStock) return;
   ...
+  const handleVisibilityChange = () => { ... };
   const interval = window.setInterval(() => {
     if (document.visibilityState === "visible") void fetchData();
   }, STOCK_POLL_INTERVAL_MS);
-  ...
+
+  return () => {
+    window.clearInterval(interval);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
 }, [assetType, selectedStock, fetchData]);
 ```
 
@@ -373,6 +392,9 @@ useEffect(() => {
 const [error, setError] = useState<string | null>(null);
 const lastRequestStartedAtRef = useRef<number | null>(null);
 const requestInFlightRef = useRef(false);
+const fetchData = useCallback(async () => {
+  ...
+}, [selectedStock, timeRange, assetType, toast]);
 
 if (!canRefreshOnVisibility(...)) return;
 void fetchData();
