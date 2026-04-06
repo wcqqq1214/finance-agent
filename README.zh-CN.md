@@ -6,6 +6,13 @@
 
 基于 Python 3.13、LangChain 与 LangGraph 的多智能体金融分析系统。采用 Fan-out / Fan-in 拓扑——Quant、News、Social 三个智能体并行执行，最终由 CIO 智能体汇总生成投资建议。
 
+## 参考项目
+
+本项目参考并借鉴了以下开源项目：
+
+- [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+- [owengetinfo-design/PokieTicker](https://github.com/owengetinfo-design/PokieTicker)
+
 ## 功能特性
 
 - **多智能体架构**: Quant / News / Social 智能体并行，CIO 汇总分析

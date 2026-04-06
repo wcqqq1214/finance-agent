@@ -6,6 +6,13 @@
 
 Python 3.13、LangChain、LangGraph で構築されたマルチエージェント金融分析システム。Fan-out / Fan-in トポロジーを採用 — Quant・News・Social の3エージェントが並列実行され、最終的に CIO エージェントが投資推奨をまとめます。
 
+## 参考プロジェクト
+
+このプロジェクトは、以下のオープンソースプロジェクトを参考にしています。
+
+- [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+- [owengetinfo-design/PokieTicker](https://github.com/owengetinfo-design/PokieTicker)
+
 ## 機能
 
 - **マルチエージェントアーキテクチャ**: Quant / News / Social エージェントの並列実行と CIO による統合

@@ -6,6 +6,13 @@
 
 A multi-agent financial analysis system built with Python 3.13, LangChain, and LangGraph. Uses a Fan-out / Fan-in topology — Quant, News, and Social agents run in parallel, then a CIO agent synthesizes a final investment recommendation.
 
+## References
+
+This project references and is inspired by the following open-source projects:
+
+- [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+- [owengetinfo-design/PokieTicker](https://github.com/owengetinfo-design/PokieTicker)
+
 ## Features
 
 - **Multi-Agent Architecture**: Parallel Quant / News / Social agents with CIO synthesis
