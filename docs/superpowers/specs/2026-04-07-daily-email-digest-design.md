@@ -365,6 +365,7 @@ Example:
       "status": "ok",
       "trend": "bullish",
       "summary": "Short technical sentence.",
+      "error": null,
       "levels": {"support": 198.0, "resistance": 205.0},
       "indicators": {
         "last_close": 201.0,
@@ -376,12 +377,14 @@ Example:
   ],
   "macro_news": {
     "status": "ok",
+    "error": null,
     "summary_points": ["Point 1", "Point 2", "Point 3"],
     "sources": []
   },
   "cio_summary": {
     "status": "ok",
-    "text": "Concise digest-level CIO conclusion."
+    "text": "Concise digest-level CIO conclusion.",
+    "error": null
   },
   "email": {
     "subject": "Daily Market Digest | 2026-04-07",
@@ -454,7 +457,6 @@ If digest-level CIO synthesis fails:
 - record `cio_summary.status=error`
 - set `cio_summary.text` to a deterministic fallback sentence based on available technical and macro sections
 - set `cio_summary.error` to a short reason
-- render a deterministic fallback sentence based on available technical and macro sections
 
 ### Email Failure
 
