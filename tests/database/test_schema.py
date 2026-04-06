@@ -61,3 +61,10 @@ def test_init_db_migrates_existing_tickers_table_with_peer_groups(tmp_path):
 
     peer_group_map = get_ticker_peer_groups(db_path)
     assert peer_group_map["MSFT"] == "cloud_enterprise_ai"
+
+
+def test_init_db_creates_nested_parent_dirs(tmp_path):
+    """init_db should create missing parent directories for the target DB path."""
+    db_path = tmp_path / "deep" / "layout" / "finance_schema.db"
+    init_db(db_path)
+    assert db_path.exists()

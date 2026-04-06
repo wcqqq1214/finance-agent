@@ -128,6 +128,17 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "finance_data.db"
 
 
+def _is_sqlite_uri(path: Path) -> bool:
+    string = str(path)
+    return string == ":memory:" or string.startswith("file:")
+
+
+def _ensure_parent_dir(path: Path) -> None:
+    if _is_sqlite_uri(path):
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def get_conn(db_path: Optional[Path] = None) -> sqlite3.Connection:
     """Get a database connection with optimized settings.
 
@@ -138,6 +149,7 @@ def get_conn(db_path: Optional[Path] = None) -> sqlite3.Connection:
         A configured SQLite connection with Row factory enabled.
     """
     path = db_path or DEFAULT_DB_PATH
+    _ensure_parent_dir(path)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

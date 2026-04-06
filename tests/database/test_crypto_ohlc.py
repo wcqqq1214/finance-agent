@@ -2,13 +2,17 @@
 
 import pytest
 
-from app.database.schema import get_conn
-
 
 @pytest.fixture(autouse=True)
-def clean_crypto_ohlc():
-    """Clean crypto_ohlc table before each test."""
-    conn = get_conn()
+def clean_crypto_ohlc(tmp_path, monkeypatch):
+    """Clean crypto_ohlc table before each test using an isolated temp DB."""
+    import app.database.schema as schema
+
+    db_path = tmp_path / "finance_data.db"
+    monkeypatch.setattr(schema, "DEFAULT_DB_PATH", db_path)
+    schema.init_db(db_path)
+
+    conn = schema.get_conn(db_path)
     conn.execute("DELETE FROM crypto_ohlc")
     conn.commit()
     conn.close()
