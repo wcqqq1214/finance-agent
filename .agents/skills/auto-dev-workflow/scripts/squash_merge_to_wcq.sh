@@ -90,6 +90,20 @@ cleanup_temp_integration() {
   fi
 }
 
+conflict_files_summary() {
+  [[ -n "${temp_worktree:-}" && -d "${temp_worktree:-}" ]] || return 0
+
+  local -a conflict_files=()
+  mapfile -t conflict_files < <(
+    git -C "$temp_worktree" ls-files -u -- | awk 'NF {print $4}' | awk 'NF && !seen[$0]++'
+  )
+
+  [[ ${#conflict_files[@]} -gt 0 ]] || return 0
+
+  printf 'CONFLICT_FILES:\n'
+  printf '%s\n' "${conflict_files[@]}"
+}
+
 workspace_status_ignoring_worktrees() {
   git status --porcelain --untracked-files=all | grep -vE '^\?\? \.worktrees(/|$)' || true
 }
@@ -165,6 +179,10 @@ trap cleanup_temp_integration EXIT
 git worktree add -b "$temp_branch" "$temp_worktree" wcq >/dev/null
 
 if ! git -C "$temp_worktree" merge --squash "$branch"; then
+  conflict_summary="$(conflict_files_summary || true)"
+  if [[ -n "$conflict_summary" ]]; then
+    fatal "$(printf "Merge conflicts encountered while squashing '%s' into the integration worktree.\n%s" "$branch" "$conflict_summary")"
+  fi
   fatal "Merge conflicts encountered while squashing '$branch' into the integration worktree."
 fi
 

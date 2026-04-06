@@ -591,6 +591,55 @@ def test_squash_merge_to_wcq_merges_and_cleans_up(tmp_path: Path) -> None:
     assert head_message.stdout.strip() == "feat: squash merge demo"
 
 
+def test_squash_merge_to_wcq_reports_conflict_files(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    script = _script_path("squash_merge_to_wcq.sh")
+
+    (repo / "README.md").write_text("wcq base change\n", encoding="utf-8")
+    assert _git(repo, "add", "README.md").returncode == 0
+    base_commit = _git(repo, "commit", "-m", "chore: update wcq base")
+    assert base_commit.returncode == 0, base_commit.stderr
+    base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    feature_worktree = repo / ".worktrees" / "feat-20260407-conflict"
+    add_worktree = _git(
+        repo,
+        "worktree",
+        "add",
+        "-b",
+        "feat/20260407-conflict",
+        str(feature_worktree),
+        "HEAD~1",
+    )
+    assert add_worktree.returncode == 0, add_worktree.stderr
+
+    (feature_worktree / "README.md").write_text("feature branch change\n", encoding="utf-8")
+    assert _git(feature_worktree, "add", "README.md").returncode == 0
+    commit_result = _git(feature_worktree, "commit", "-m", "feat: branch conflict change")
+    assert commit_result.returncode == 0, commit_result.stderr
+
+    result = _run(
+        [
+            "bash",
+            str(script),
+            "--branch",
+            "feat/20260407-conflict",
+            "--base-sha",
+            base_sha,
+            "--worktree",
+            str(feature_worktree),
+        ],
+        cwd=repo,
+    )
+
+    assert result.returncode != 0
+    assert "Merge conflicts encountered while squashing 'feat/20260407-conflict'" in result.stderr
+    assert "CONFLICT_FILES:" in result.stderr
+    assert "README.md" in result.stderr
+    assert feature_worktree.exists()
+    assert _git(repo, "show-ref", "--verify", "refs/heads/feat/20260407-conflict").returncode == 0
+
+
 def test_squash_merge_to_wcq_uses_explicit_merge_message(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     script = _script_path("squash_merge_to_wcq.sh")
