@@ -34,7 +34,7 @@ When the daily digest job runs, the system should:
 2. generate a concise technical section for each ticker
 3. generate one global macro news section
 4. generate one digest-level CIO summary
-5. render a compact plain-text email body
+5. render a compact multipart email body with plain text and minimal HTML variants
 6. persist digest artifacts under `data/reports/digests/...`
 7. send the email to all configured recipients when SMTP and recipients are available
 
@@ -74,6 +74,7 @@ Validation rules:
 - invalid `DAILY_DIGEST_TIME` or `DAILY_DIGEST_TIMEZONE`
   - do not crash API startup
   - log a configuration error
+  - do not silently fall back to UTC
   - skip daily digest job registration
 - empty or invalid ticker list after normalization
   - log a warning
@@ -130,7 +131,7 @@ Suggested responsibilities:
 - `app/digest/generator.py`
   - orchestrate the whole digest run
 - `app/digest/render.py`
-  - convert the structured digest payload into email-ready plain text
+  - convert the structured digest payload into email-ready plain-text and minimal HTML variants
 
 The pipeline should return a structured digest object that includes:
 
@@ -140,6 +141,8 @@ The pipeline should return a structured digest object that includes:
 - one macro news block
 - one CIO summary block
 - file paths for persisted artifacts
+
+Ticker technical snapshot generation should be concurrent. Because each ticker snapshot is independent, the generator should fan out per-ticker work in parallel and preserve configured ticker order in the final payload. The implementation may use `asyncio.gather` over async adapters or thread-offloaded sync adapters, but the contract is concurrent fan-out rather than serial execution.
 
 ### 3. Technical Snapshot Generation
 
@@ -155,6 +158,8 @@ Asset routing rules:
   - do not require ML enrichment in the first release
 
 This avoids relying on `get_local_stock_data`, which is limited to Magnificent Seven equities, while keeping the digest output shape consistent across stocks and crypto.
+
+Even though the repository contains other crypto data paths, v1 should keep a single crypto technical adapter for deterministic behavior and reduced integration scope. The adapter boundary should remain narrow enough that a future revision can swap the underlying crypto source without changing the digest contract.
 
 For each ticker, the digest should extract:
 
@@ -203,11 +208,18 @@ The output should be a short conclusion focused on:
 
 This is intentionally different from the current per-asset CIO flow.
 
+LLM input and output constraints:
+
+- feed the digest CIO step a compact normalized representation of technical sections and macro bullets, not full markdown reports
+- prefer a structured string or compact JSON-like prompt payload
+- cap output to approximately 300 tokens and 2-4 sentences so the digest footer stays concise and stable
+
 ### 6. Email Transport
 
 Add a dedicated email service, for example `app/services/email_service.py`, that is responsible for:
 
-- building a plain-text email message
+- building a `multipart/alternative` email message
+- generating a required plain-text body and a minimal HTML body
 - parsing recipients
 - connecting to SMTP
 - STARTTLS or SSL handling
@@ -400,14 +412,15 @@ Persist each digest run under a dedicated directory, for example:
 
 - `data/reports/digests/<run_id>/digest.json`
 - `data/reports/digests/<run_id>/email.txt`
+- `data/reports/digests/<run_id>/email.html`
 
-`digest.json` is the source of truth for the run. `email.txt` is the rendered plain-text snapshot that was intended for delivery.
+`digest.json` is the source of truth for the run. `email.txt` and `email.html` are the rendered snapshots intended for delivery.
 
 Retention for the first release follows the current reports behavior: keep artifacts until manually cleaned up. No automatic retention or pruning policy is added in this change.
 
 ## Email Rendering
 
-The first release should send a compact plain-text email. The body should contain:
+The first release should send a compact `multipart/alternative` email. The plain-text body remains the canonical readable representation, and the HTML body should stay minimal. Both variants should contain:
 
 - header with date and ticker coverage
 - one short technical subsection per ticker
@@ -422,6 +435,7 @@ Formatting rules:
 - render each ticker in no more than two compact lines
 - inline unavailable sections at the ticker or section where they occur
 - do not add a separate error appendix in v1
+- keep HTML intentionally lightweight: basic headings, lists, emphasis, and line breaks only
 
 ## Failure Handling
 
@@ -463,7 +477,7 @@ If digest-level CIO synthesis fails:
 If SMTP delivery fails:
 
 - do not discard the generated digest
-- persist `digest.json` and `email.txt`
+- persist `digest.json`, `email.txt`, and `email.html`
 - record send failure metadata in the digest payload
 - log the error
 
@@ -512,16 +526,19 @@ Add tests that cover the new flow without relying on real SMTP or live external 
 - defaults for time, timezone, and ticker list
 - recipient parsing from comma-separated env values
 - disabled behavior when the feature flag is false
+- invalid timezone strings cause digest job registration to be skipped rather than silently falling back to UTC
 
 ### Digest Aggregation Tests
 
 - successful aggregation with mocked technical snapshots, news, and CIO summary
 - continued execution when one ticker fails
 - fallback behavior when macro news or CIO synthesis fails
+- per-ticker technical sections are built concurrently while the final payload preserves configured ticker order
 
 ### Email Rendering Tests
 
 - rendered plain-text email contains all configured tickers
+- rendered HTML email contains the same logical sections with minimal markup
 - rendered body includes macro news and CIO sections
 - unavailable ticker rows render compactly and clearly
 
@@ -536,6 +553,7 @@ Add tests that cover the new flow without relying on real SMTP or live external 
 - SMTP success path
 - SMTP authentication or connection failure path
 - behavior when recipients are missing
+- multipart email contains both plain-text and HTML alternatives
 
 ## Implementation Notes
 
