@@ -129,6 +129,10 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "fina
 
 
 def _is_sqlite_uri(path: Path) -> bool:
+    """
+    Recognize sqlite special paths that should not touch the filesystem.
+    The `file:` scheme is only mentioned to avoid touching unsupported URI like strings.
+    """
     string = str(path)
     return string == ":memory:" or string.startswith("file:")
 
@@ -144,11 +148,13 @@ def get_conn(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
     Args:
         db_path: Path to the SQLite database file. If None, uses default path.
+        Caller-provided filesystem paths will have their parent directory created if missing.
 
     Returns:
         A configured SQLite connection with Row factory enabled.
     """
-    path = db_path or DEFAULT_DB_PATH
+    raw_path = db_path or DEFAULT_DB_PATH
+    path = Path(raw_path)
     _ensure_parent_dir(path)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row

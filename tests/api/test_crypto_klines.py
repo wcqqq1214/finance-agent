@@ -56,16 +56,17 @@ class TestCryptoKlinesEndpoint:
                 mock_hot.return_value = mock_hot_data
 
                 client = TestClient(app)
-                response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=1m")
+                response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=1d")
 
                 assert response.status_code == 200
                 data = response.json()
                 assert len(data) == 2
                 assert data[0]["timestamp"] == 1000
                 assert data[1]["timestamp"] == 2000
+                assert mock_cold.call_args.kwargs["bar"] == "1d"
 
     def test_get_klines_deduplicates_overlapping_data(self):
-        """测试去重重叠数据（保留热数据）"""
+        """测试去重重叠数据（冷仓占优）"""
         from app.api.main import app
 
         cold_data = [
@@ -101,12 +102,12 @@ class TestCryptoKlinesEndpoint:
                 mock_hot.return_value = hot_data
 
                 client = TestClient(app)
-                response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=1m")
+                response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=1d")
 
                 assert response.status_code == 200
                 data = response.json()
                 assert len(data) == 1
-                assert data[0]["close"] == 102.0  # Should keep hot data
+                assert data[0]["close"] == 100.5  # Cold data wins on overlap
 
     def test_get_klines_requires_symbol_and_interval(self):
         """测试必需参数"""
@@ -128,7 +129,7 @@ class TestCryptoKlinesEndpoint:
 
                 client = TestClient(app)
                 response = client.get(
-                    "/api/crypto/klines?symbol=BTCUSDT&interval=1m&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z"
+                    "/api/crypto/klines?symbol=BTCUSDT&interval=1d&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z"
                 )
 
                 assert response.status_code == 200
@@ -137,3 +138,38 @@ class TestCryptoKlinesEndpoint:
                 call_args = mock_cold.call_args
                 assert call_args[1]["start"] == "2024-01-01T00:00:00Z"
                 assert call_args[1]["end"] == "2024-01-02T00:00:00Z"
+
+    def test_get_klines_rejects_unsupported_interval(self):
+        """Unsupported public intervals return 400 with an invalid interval detail."""
+        from app.api.main import app
+
+        client = TestClient(app)
+        response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=1m")
+
+        assert response.status_code == 400
+        payload = response.json()
+        assert isinstance(payload, dict)
+        assert payload.get("detail", "").startswith("Invalid interval")
+
+    def test_get_klines_supports_intraday_interval(self, mock_cold_data, mock_hot_data):
+        """15m 请求映射到 source bar=1m 并调用聚合器"""
+        from app.api.main import app
+
+        with patch("app.api.routes.crypto_klines.aggregate_ohlc") as mock_aggregate:
+            mock_aggregate.return_value = [
+                mock_cold_data[0],
+                mock_hot_data.iloc[0].to_dict(),
+            ]
+            with patch("app.api.routes.crypto_klines.get_crypto_ohlc") as mock_cold:
+                with patch("app.api.routes.crypto_klines.get_hot_cache") as mock_hot:
+                    mock_cold.return_value = mock_cold_data
+                    mock_hot.return_value = mock_hot_data
+
+                    client = TestClient(app)
+                    response = client.get("/api/crypto/klines?symbol=BTCUSDT&interval=15m")
+
+                    assert response.status_code == 200
+                    mock_cold.assert_called_once()
+                    assert mock_cold.call_args.kwargs["bar"] == "1m"
+                    mock_aggregate.assert_called_once()
+                    assert mock_aggregate.call_args[0][1] == "15m"

@@ -86,6 +86,12 @@ uv run ruff format --check .
 uv run python -m scripts.utils.manual_run
 ```
 
+## Repository-Local Auto Dev Workflow
+
+- Feature and bugfix implementation requests must follow `.agents/skills/auto-dev-workflow/SKILL.md`. The skill enforces clean `wcq`, isolated `.worktrees/<branch>`, scoped checks, task commits, and scripted merges back to `wcq`.
+- If the user explicitly writes `skip-workflow`, bypass this repository-local workflow skill and continue handling the request normally. Otherwise, do not start implementation work without first reading and executing the skill instructions.
+
+
 
 ## Architecture Overview
 

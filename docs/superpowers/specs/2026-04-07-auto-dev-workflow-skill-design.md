@@ -1,108 +1,352 @@
----
-title: Auto Dev Workflow Skill Task C Design
-date: 2026-04-07
----
+# Auto Dev Workflow Skill Design
 
-# Auto Dev Workflow Skill – Task C
+**Problem**
 
-## Overview
+The repository already documents a preferred Superpowers workflow, but it does not enforce the operational constraints the team actually wants during day-to-day development. New feature work can still start from the main workspace, task boundaries are not consistently committed, and successful work is not automatically folded back into the local `wcq` branch. The workflow also does not yet encode frontend lint/format gates such as `eslint` and `prettier`.
 
-This skill captures the repository-local automation expectations for Task C of the auto-dev-workflow initiative. It defines three guardrail scripts under `.agents/skills/auto-dev-workflow/scripts/` that isolate feature work, rerun verification, and gate merges. All scripts run with `set -euo pipefail`, emit clear reasoning on success/failure, and are safe to execute from the repository root. This design document specifies the responsibilities, interfaces, and failure modes so that the subsequent implementation can be validated against a single source of truth.
+**Goal**
 
-## Scripts
+Create a repository-local workflow skill that takes over feature and bugfix implementation work through explicit repository instructions, forces execution inside an isolated `worktree + branch`, commits after each small task, and automatically `squash merge`s back into local `wcq` after all checks pass.
+
+**Design**
+
+## Scope
+
+- Add a repository-local skill under `.agents/skills/auto-dev-workflow/`.
+- Make the skill the default workflow for development requests through root `AGENTS.md` rules unless the user explicitly says `skip-workflow`.
+- Reuse the existing Superpowers phases (`brainstorming`, `writing-plans`, `using-git-worktrees`, `subagent-driven-development`, `requesting-code-review`, `verification-before-completion`) instead of re-implementing them in prose.
+- Require `test-driven-development` for implementation work and `systematic-debugging` before bugfix implementation.
+- Add deterministic shell scripts for the parts that must be enforced rather than merely suggested:
+  - worktree/branch creation
+  - task-level commit creation
+  - scoped checks
+  - final gate
+  - local squash merge back to `wcq`
+- Extend the final verification matrix to include frontend `eslint` and `prettier`.
+
+## Non-Goals
+
+- Do not add automatic remote pushes.
+- Do not support direct development on `wcq` or `master`.
+- Do not introduce a second first-class runtime for `gstack` in v1; only document a future adapter seam.
+- Do not modify the existing global Superpowers skills in `node_modules`.
+
+## Activation Model
+
+The repository cannot rely on one ambiguous auto-discovery path. v1 uses a two-part activation model:
+
+1. The canonical implementation lives in the repository at `.agents/skills/auto-dev-workflow/`.
+2. Root `AGENTS.md` explicitly instructs agents to read and follow that skill for implementation requests unless the user says `skip-workflow`.
+
+`agents/openai.yaml` remains useful for UIs that surface repository-local skills, but correct behavior must not depend on UI-specific auto-loading.
+
+## User-Facing Behavior
+
+1. When the user asks for a new feature, bugfix, or behavior change, the workflow skill activates automatically.
+2. The skill does not activate for code questions, code review requests, brainstorming-only requests, or explicit planning requests that do not ask for implementation.
+3. If the user says `skip-workflow`, the skill exits immediately and normal handling resumes.
+4. The skill refuses to start if the main workspace is not on `wcq` or if the main workspace has uncommitted changes.
+5. After preflight, the skill creates a dedicated `.worktrees/<branch-name>` worktree and a matching feature branch from the current `wcq` commit.
+6. The workflow writes the approved design and implementation plan inside that feature worktree under `docs/superpowers/specs/` and `docs/superpowers/plans/`, so the docs and implementation live on the same branch.
+7. During implementation, every completed plan task is verified and then committed automatically on the feature branch.
+8. After the final gate passes, the feature branch is squash-merged into local `wcq`, then the feature branch and worktree are removed.
+9. If any task review, verification step, branch drift check, or merge step fails, the workflow stops and reports the blocking condition instead of guessing.
+
+## Triggering and Escape Hatch
+
+- Skill name: `auto-dev-workflow`
+- Trigger classes:
+  - feature implementation
+  - bugfix implementation
+  - behavior-changing code change
+  - new script/tooling implementation
+- Explicit non-triggers:
+  - architecture discussion only
+  - code explanation only
+  - code review only
+  - repository exploration only
+- Escape hatch:
+  - exact phrase `skip-workflow`
+- Precedence:
+  - explicit user request to skip wins
+  - otherwise root `AGENTS.md` routes implementation work through the local skill
+
+## Repository Layout
+
+```text
+.agents/
+  skills/
+    auto-dev-workflow/
+      SKILL.md
+      agents/
+        openai.yaml
+      references/
+        workflow-contract.md
+        verification-matrix.md
+        gstack-adapter.md
+      scripts/
+        create_feature_workspace.sh
+        complete_task_commit.sh
+        run_scoped_checks.sh
+        run_final_gate.sh
+        squash_merge_to_wcq.sh
+```
+
+### File Responsibilities
+
+- `SKILL.md`
+  - entrypoint and orchestration rules
+  - trigger description
+  - stop conditions
+  - required sub-skills
+- `agents/openai.yaml`
+  - UI metadata only
+- `references/workflow-contract.md`
+  - branch policy
+  - worktree policy
+  - merge/cleanup policy
+  - `skip-workflow` behavior
+- `references/verification-matrix.md`
+  - task-level scoped checks
+  - final gate commands
+  - backend and frontend command matrix
+- `references/gstack-adapter.md`
+  - future mapping notes only
+- `scripts/create_feature_workspace.sh`
+  - validate clean `wcq`
+  - derive feature branch name
+  - create worktree + branch
+  - print resulting paths/branch names and base SHA
+- `scripts/complete_task_commit.sh`
+  - validate staged diff exists
+  - refuse unstaged changes
+  - rerun required task-level commands passed in by caller
+  - create conventional commit for the finished task
+- `scripts/run_scoped_checks.sh`
+  - choose backend/frontend lint-format commands from changed paths
+  - run caller-provided task verification commands
+  - run backend and frontend subsets without over-running the full suite
+- `scripts/run_final_gate.sh`
+  - run final backend and frontend checks
+  - include `ruff`, `eslint`, `prettier`, type-check, and target test suite commands
+- `scripts/squash_merge_to_wcq.sh`
+  - confirm `wcq` has not advanced since branch creation
+  - squash merge
+  - rerun final gate on merged `wcq`
+  - delete feature branch
+  - remove worktree
+
+## Workflow State Machine
+
+1. `preflight`
+   - confirm current workspace is root repo
+   - confirm current branch is `wcq`
+   - confirm working tree is clean
+   - capture local `refs/heads/wcq` SHA
+2. `workspace setup`
+   - run `create_feature_workspace.sh`
+3. `design`
+   - switch work to the feature worktree
+   - run `brainstorming`
+   - write spec in the feature worktree
+   - run spec review loop
+4. `planning`
+   - run `writing-plans`
+   - write plan in the feature worktree
+   - run plan review loop
+5. `task execution loop`
+   - execute one planned task at a time
+   - for bugfix tasks, complete `systematic-debugging` before code changes
+   - use `test-driven-development` before production code changes
+   - run scoped checks
+   - request spec compliance review
+   - request code quality review
+   - run `complete_task_commit.sh`
+6. `final gate`
+   - run `run_final_gate.sh`
+7. `merge`
+   - run `squash_merge_to_wcq.sh`
+8. `cleanup`
+   - branch/worktree cleanup is part of successful merge
+
+## Verification Matrix
+
+### Task-Level Scoped Checks
+
+`run_scoped_checks.sh` receives:
+
+- a diff base SHA
+- the current git target (`--cached` or worktree diff)
+- zero or more explicit task verification commands from the plan
+
+The script then adds deterministic path-based checks:
+
+- Python path touched outside `frontend/`:
+  - `uv run ruff check <python-paths>`
+  - `uv run ruff format --check <python-paths>`
+- Frontend path touched under `frontend/`:
+  - `(cd frontend && pnpm lint)`
+  - `(cd frontend && pnpm exec prettier --check .)`
+  - `(cd frontend && pnpm type-check)` when any `.ts`, `.tsx`, `package.json`, `tsconfig`, or ESLint/Prettier config file changes
+
+The caller-supplied task verification commands remain the source of truth for task-specific tests. v1 does not attempt to infer pytest targets from source files alone.
+
+### Final Gate
+
+- Backend:
+  - `uv run pytest tests/`
+  - `uv run ruff check .`
+  - `uv run ruff format --check .`
+- Frontend, when `frontend/` is touched:
+  - `(cd frontend && pnpm lint)`
+  - `(cd frontend && pnpm exec prettier --check .)`
+  - `(cd frontend && pnpm type-check)`
+
+Frontend semantics still come from `frontend/AGENTS.md`; the workflow only enforces the existing command-line gates.
+
+## Commit Strategy
+
+- During execution:
+  - one commit per completed plan task
+  - conventional commits
+  - these commits exist only on the feature branch and are validated there before squash
+- At integration:
+  - squash merge into local `wcq`
+  - one final feature commit on `wcq`
+
+## Error Handling and Stop Conditions
+
+The workflow must stop and report instead of improvising when:
+
+- main workspace is dirty
+- current branch is not `wcq`
+- worktree creation fails
+- scoped checks fail
+- any spec review or code review reports blocking issues
+- final gate fails
+- `wcq` advanced after the feature branch was created
+- squash merge conflicts
+
+## Testing Strategy
+
+- Script-level smoke tests for:
+  - refusing dirty workspace
+  - creating worktree and branch from `wcq`
+  - refusing merge when `wcq` drifts
+- Skill validation:
+  - `quick_validate.py` against the skill directory
+- Forward checks:
+  - use subagents against the local skill to verify the workflow instructions are discoverable and coherent
+
+## Risks
+
+- Auto-trigger descriptions that are too broad may catch non-implementation requests.
+- Scoped frontend checks can overrun into full-project checks if CLI support is inconsistent.
+- Auto-merge must remain local-only to avoid surprising remote side effects.
+- The workflow depends on clear task boundaries in generated plans; weak plans will weaken task-level auto-commit quality.
+
+## Naming Rules
+
+- Branch naming:
+  - `feat/<yyyymmdd>-<slug>`
+  - `fix/<yyyymmdd>-<slug>`
+- Worktree directory naming:
+  - replace `/` with `-` from the branch name
+  - example: `feat/20260407-auto-workflow` maps to `.worktrees/feat-20260407-auto-workflow`
+- Slug rules:
+  - lowercase ASCII
+  - hyphen-separated
+  - max 40 characters after normalization
+- Collision handling:
+  - append `-2`, `-3`, ... until both the branch name and `.worktrees/<name>` path are free
+
+## Script Interfaces
+
+### `create_feature_workspace.sh`
+
+Inputs:
+- `--kind feat|fix`
+- `--slug <normalized-topic>`
+
+Outputs:
+- stdout lines:
+  - `BRANCH_NAME=...`
+  - `WORKTREE_DIRNAME=...`
+  - `WORKTREE_PATH=...`
+  - `BASE_SHA=...`
+- exit `0` on success, non-zero on refusal/error
 
 ### `run_scoped_checks.sh`
 
-- **Purpose**: Derive affected files from either the cached index or a lightweight worktree diff and gate command execution, Ruff, and frontend tooling to that subset.
-- **Arguments**:
-  - `--base-sha <sha>` designates the baseline commit for diffing.
-  - `--diff-target <cached|worktree>` selects whether to compare the staged index (`cached`) or the working tree against the base.
-  - Repeated `--cmd <verification-command>` options specify additional commands to run in order; they execute in the order they were provided.
-- **Behavior**:
-  1. Run `git diff --name-only --diff-filter=ACMRTUXB <base> --` or `git diff --name-only --cached --diff-filter=ACMRTUXB <base> --` depending on `--diff-target` to collect touched paths.
-  2. Partition touched files into:
-     - Python paths (`*.py`, `*.pyi`) to trigger two Ruff commands scoped to the changed files.
-     - Frontend paths (any under `frontend/`) and configuration files that matter to frontend tooling.
-     - Files that match `*.ts`, `*.tsx`, `frontend/package.json`, `tsconfig*.json`, `eslint*.{cjs,mjs,json}`, or `.prettierrc*` to determine whether the TypeScript gate is needed.
-  3. Run the provided `--cmd` arguments after the diff classification.
-  4. Always execute `uv run ruff check` and `uv run ruff format --check` with `--select-files` or equivalent to limit to the staged/working files gathered in step 1 (or the entire repo if the list is empty).
-  5. If frontend paths were touched, run `cd frontend && pnpm lint` and `cd frontend && pnpm exec prettier --check .`.
-  6. If any TypeScript or config file changed, additionally run `cd frontend && pnpm type-check`.
-  7. Emit a summary mapping which subset triggered which command so downstream automation can inspect the exit code and the list of files it acted upon.
+Inputs:
+- `--base-sha <sha>`
+- `--diff-target cached|worktree`
+- repeated `--cmd '<verification-command>'`
+
+Behavior:
+- derives changed paths from git diff against the provided target
+- runs added lint/format/type commands from path rules
+- runs each provided `--cmd` as part of the scoped gate
 
 ### `complete_task_commit.sh`
 
-- **Purpose**: Ensure every task commit is made from a clean index and rerun specified verification commands before the commit is created.
-- **Arguments**:
-  - `--message <conventional-commit>` (mandatory) supplies the commit message body; the script should prepend `feat(wf):` or another agreed prefix if it’s not already there.
-  - Repeated `--cmd <verification-command>` arguments define commands to rerun before creating the commit.
-- **Behavior**:
-  1. Refuse to run if `git diff --cached --name-only` is empty.
-  2. Refuse to run if `git status --porcelain` reports any unstaged changes.
-  3. Execute the provided `--cmd` entries in order (the same commands the caller intends to rely on). Any failure aborts before committing.
-  4. If all commands succeed, perform `git commit -m "<message>"`.
-  5. Print which commands were rerun and the final commit hash for verification.
+Inputs:
+- `--message <conventional-commit-message>`
+- repeated `--cmd '<verification-command>'`
+
+Behavior:
+- refuses empty staged diff
+- reruns the provided verification commands before committing, removing ambiguity about whether checks already passed
 
 ### `run_final_gate.sh`
 
-- **Purpose**: Provide the final safety net before merging a feature branch back into `wcq`.
-- **Arguments**:
-  - `--base-sha <sha>` points to the deterministic base commit that the feature branch was forked from.
-- **Behavior**:
-  1. Verify that `<base-sha>` exists in the current history (e.g., `git merge-base --is-ancestor`), aborting if it is not an ancestor of `HEAD`.
-  2. Run the backend gate commands:
-     - `uv run pytest tests/`
-     - `uv run ruff check .`
-     - `uv run ruff format --check .`
-  3. Determine if frontend files were touched by running `git diff --name-only <base-sha> HEAD` and checking for any entries under `frontend/`.
-  4. If frontend files changed, run:
-     - `cd frontend && pnpm lint`
-     - `cd frontend && pnpm exec prettier --check .`
-     - `cd frontend && pnpm type-check`
-  5. Output a machine-readable summary (e.g., JSON or key=value pairs) that states which gate succeeded and whether the frontend gate executed.
+Inputs:
+- `--base-sha <sha>`
 
-## Diff detection and classification
+Behavior:
+- runs full backend gate
+- derives frontend impact internally from `git diff --name-only <base_sha>..HEAD`
+- runs frontend `eslint`, `prettier`, and `type-check` only when frontend content changed in that diff
 
-All scripts will centralize diff collection so that other logic can reuse the same list of touched files. The diff pipeline will:
-1. Use the supplied `--base-sha` as the left-hand side of every comparison.
-2. Respect `--diff-target`: when `worktree` is provided, compare `HEAD` and the working tree; when `cached` is supplied, compare `HEAD` and the staged index.
-3. Normalize file paths and ignore deletions to keep the touched-file set readable.
-4. Provide helper functions (e.g., `run_scoped_checks` might export `touched_python`, `touched_frontend`, `touched_ts_config`) so downstream rules can decide whether to run additional commands.
+### `squash_merge_to_wcq.sh`
 
-## Command reruns and user-provided `--cmd`
+Inputs:
+- `--branch <feature-branch>`
+- `--base-sha <captured-wcq-sha>`
+- `--worktree <path>`
 
-The `--cmd` arguments exist so a caller (root AGENT or sub-agent) can ensure a task’s intended verification commands run inside the workflow. Scripts must:
-- Echo each command before running it.
-- Run them exactly in the order provided.
-- Fail fast if any command fails, without masking the earlier exit code.
-- Provide exit-status-aware logging so callers can tell whether `pnpm lint` ran because a frontend file was touched or because the command was explicitly supplied.
+Behavior:
+- drift means local `git rev-parse wcq` no longer equals captured `base_sha`
+- remotes are ignored in v1 because the workflow does not push
+- runs the fixed `run_final_gate.sh --base-sha <base_sha>` script instead of evaluating a caller-provided command string
 
-## Error handling
+## Review Severity Rules
 
-- Every script sets `set -euo pipefail` and traps `ERR` to emit contextual failure messages.
-- When refusing to run (e.g., clean index violation), print a clear rationale and choose a non-zero exit code (1 for guardrail failures, 2 for git state issues).
-- When `--base-sha` is missing from history, fail early rather than proceeding with stale data.
-- When `--cmd` reruns fail, propagate the command’s exit code rather than masking it.
+- Spec reviewer:
+  - any `❌ Issues Found` item is blocking
+- Code reviewer:
+  - `Critical` and `Important` issues are blocking
+  - `Minor` issues are advisory
 
-## Testing and verification
+## Development Discipline Rules
 
-- Unit-test the diff classification logic by mocking `git diff` outputs (e.g., ensure frontend detection turns on for `frontend/src/app` changes and `package.json` modifications).
-- Smoke-test each script locally:
-  1. Create a temporary branch/worktree and stage simple changes.
- 2. Run `run_scoped_checks.sh` with `--diff-target cached` and verify only touched files are reported and the correct frontend/ruff commands run.
-  3. Run `complete_task_commit.sh` with a staged change and a failing `--cmd` to confirm it refuses to commit.
-  4. Run `run_final_gate.sh` with `--base-sha` pointing at `wcq` and a dummy frontend change to ensure frontend gates run.
-- Validate that `pnpm lint`, `pnpm exec prettier --check .`, and `pnpm type-check` run from within `frontend/` only when triggered.
+- All implementation tasks follow `test-driven-development`.
+- All bugfix tasks complete `systematic-debugging` root-cause investigation before implementation starts.
+- `complete_task_commit.sh` commits only when the staged diff is the full intended task result and no unstaged changes remain.
 
-## Activation and escape rules
+## Integration Points
 
-- These scripts live under `.agents/skills/auto-dev-workflow/scripts/` and are invoked via the `auto-dev-workflow` skill articulated in the root `AGENTS.md`.
-- The design assumes the caller uses the `wcq` branch (or another feature branch) and that every new feature is developed in its own worktree, with merges gated via `run_final_gate.sh`.
-- Avoid running these scripts from dirty repositories; each script already enforces clean-tree requirements before proceeding.
+- Modify `AGENTS.md` to route implementation work to the local workflow skill.
+- Respect `frontend/AGENTS.md` as the canonical frontend behavior ruleset while using existing frontend CLI commands.
+- Use the local validation helper at `/home/wcqqq21/.codex/skills/.system/skill-creator/scripts/quick_validate.py` during implementation verification.
 
-## Next steps
+## Acceptance Criteria
 
-- After this design document is reviewed and considered stable, we will:
-  1. Dispatch the spec-document-reviewer subagent (if available) to validate the text.
-  2. Ask the user to review the committed spec before proceeding.
-  3. Use the `writing-plans` skill to turn this spec into an executable plan for script implementation.
+1. A new repository-local skill exists at `.agents/skills/auto-dev-workflow/`.
+2. Development requests trigger the workflow by default, and `skip-workflow` bypasses it.
+3. The workflow refuses to run from a dirty main workspace or from a branch other than `wcq`.
+4. The workflow creates an isolated worktree and feature branch before implementation.
+5. The workflow includes task-level auto-commit behavior.
+6. The workflow includes final local squash merge back to `wcq`.
+7. The workflow’s final gate includes backend `ruff` and frontend `eslint` plus `prettier`.
+8. The skill folder passes basic validation with `quick_validate.py`.
