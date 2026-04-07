@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.triggers.cron import CronTrigger
 
@@ -42,9 +42,11 @@ def _is_valid_email(value: str) -> bool:
     candidate = value.strip()
     if not candidate or " " in candidate:
         return False
-    if "@" not in candidate:
+    if candidate.count("@") != 1:
         return False
     local, _, domain = candidate.partition("@")
+    if "@" in domain:
+        return False
     return bool(local and "." in domain and not domain.startswith(".") and not domain.endswith("."))
 
 
@@ -93,7 +95,9 @@ def load_daily_digest_config() -> DailyDigestConfig:
     smtp_port_raw = os.getenv("SMTP_PORT", "587")
     try:
         smtp_port = int(smtp_port_raw)
-    except ValueError:
+        if smtp_port <= 0 or smtp_port > 65535:
+            raise ValueError(f"SMTP_PORT out of range: {smtp_port}")
+    except (TypeError, ValueError):
         logger.warning("Invalid SMTP_PORT=%r; falling back to 587", smtp_port_raw)
         smtp_port = 587
 
@@ -131,6 +135,6 @@ def build_daily_digest_trigger(config: DailyDigestConfig) -> CronTrigger | None:
     try:
         hour, minute = _parse_hh_mm(config["time"])
         timezone = ZoneInfo(config["timezone"])
-    except Exception:
+    except (ValueError, ZoneInfoNotFoundError):
         return None
     return CronTrigger(hour=hour, minute=minute, timezone=timezone)
