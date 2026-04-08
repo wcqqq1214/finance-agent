@@ -37,7 +37,7 @@ test("k line chart chart-update effect tracks timeRange in dependencies", () => 
   // ESLint warning in repo indicates the chart-update effect reads timeRange; ensure deps include it.
   assert.match(
     source,
-    /\},\s*\[ohlcData,\s*resolvedTheme,\s*trendMode,\s*timeRange\]\s*\);/,
+    /\},\s*\[assetType,\s*liveQuote,\s*ohlcData,\s*resolvedTheme,\s*trendMode,\s*timeRange\]\s*\);/,
   );
 });
 
@@ -61,4 +61,10 @@ test("k line chart suppresses auto-refresh toast noise once data exists", () => 
   );
   assert.match(source, /if\s*\(shouldToast\)\s*\{\s*toast\(/);
   assert.match(source, /void fetchData\(true\)/);
+});
+
+test("k line chart can overlay the selected stock live quote onto the latest bar", () => {
+  assert.match(source, /liveQuote\?: StockInfo \| null/);
+  assert.match(source, /mergeLiveQuoteIntoLatestStockBar/);
+  assert.match(source, /liveQuote\.price/);
 });

@@ -24,6 +24,7 @@ const CRYPTO_SYMBOLS = [
 interface AssetSelectorProps {
   selectedAsset: string | null;
   onAssetSelect: (symbol: string) => void;
+  onSelectedStockQuoteChange: (quote: StockInfo | null) => void;
   assetType: "crypto" | "stocks";
   onAssetTypeChange: (type: "crypto" | "stocks") => void;
 }
@@ -31,6 +32,7 @@ interface AssetSelectorProps {
 export function AssetSelector({
   selectedAsset,
   onAssetSelect,
+  onSelectedStockQuoteChange,
   assetType,
   onAssetTypeChange,
 }: AssetSelectorProps) {
@@ -145,6 +147,17 @@ export function AssetSelector({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchQuotes]);
+
+  useEffect(() => {
+    if (assetType !== "stocks" || !selectedAsset) {
+      onSelectedStockQuoteChange(null);
+      return;
+    }
+
+    onSelectedStockQuoteChange(
+      stocks.find((stock) => stock.symbol === selectedAsset) ?? null,
+    );
+  }, [assetType, onSelectedStockQuoteChange, selectedAsset, stocks]);
 
   return (
     <div className="space-y-2">

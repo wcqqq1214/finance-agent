@@ -32,3 +32,11 @@ test("asset selector interval refresh skips when a request is already in flight"
     /if\s*\(requestInFlightRef\.current\)\s*\{\s*return;\s*\}/,
   );
 });
+
+test("asset selector reports the currently selected stock quote upward", () => {
+  assert.match(source, /onSelectedStockQuoteChange/);
+  assert.match(
+    source,
+    /stocks\.find\(\(stock\) => stock\.symbol === selectedAsset\)/,
+  );
+});

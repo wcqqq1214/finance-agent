@@ -4,14 +4,18 @@ import { useState } from "react";
 import { AssetSelector } from "@/components/asset/AssetSelector";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { KLineChart } from "@/components/chart/KLineChart";
+import type { StockInfo } from "@/lib/types";
 
 export default function Home() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const [selectedStockQuote, setSelectedStockQuote] =
+    useState<StockInfo | null>(null);
   const [assetType, setAssetType] = useState<"crypto" | "stocks">("stocks");
 
   const handleAssetTypeChange = (type: "crypto" | "stocks") => {
     setAssetType(type);
     setSelectedAsset(null); // Clear selection when switching asset type
+    setSelectedStockQuote(null);
   };
 
   return (
@@ -23,6 +27,7 @@ export default function Home() {
           <AssetSelector
             selectedAsset={selectedAsset}
             onAssetSelect={setSelectedAsset}
+            onSelectedStockQuoteChange={setSelectedStockQuote}
             assetType={assetType}
             onAssetTypeChange={handleAssetTypeChange}
           />
@@ -30,7 +35,11 @@ export default function Home() {
 
         {/* Bottom: K-line chart (60% height) */}
         <div className="min-h-0 basis-3/5 overflow-hidden">
-          <KLineChart selectedStock={selectedAsset} assetType={assetType} />
+          <KLineChart
+            selectedStock={selectedAsset}
+            assetType={assetType}
+            liveQuote={selectedStockQuote}
+          />
         </div>
       </div>
 

@@ -19,11 +19,12 @@ import {
   STOCK_POLL_INTERVAL_MS,
   canRefreshOnVisibility,
 } from "@/lib/visibility-refresh";
-import type { TimeRange, OHLCRecord } from "@/lib/types";
+import type { TimeRange, OHLCRecord, StockInfo } from "@/lib/types";
 
 interface KLineChartProps {
   selectedStock: string | null;
   assetType: "crypto" | "stocks";
+  liveQuote?: StockInfo | null;
 }
 
 // Resolve CSS variables to color strings for lightweight-charts
@@ -108,7 +109,51 @@ function getTimezoneInfo(): { name: string; offset: string } {
   return { name: timeZone, offset: offsetStr };
 }
 
-export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
+function getCurrentUsMarketDateString(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(now);
+}
+
+function mergeLiveQuoteIntoLatestStockBar(
+  data: OHLCRecord[],
+  assetType: "crypto" | "stocks",
+  liveQuote?: StockInfo | null,
+): OHLCRecord[] {
+  if (
+    assetType !== "stocks" ||
+    liveQuote?.price === undefined ||
+    data.length === 0
+  ) {
+    return data;
+  }
+
+  const lastBar = data[data.length - 1];
+  const lastBarDate = lastBar.date.split("T")[0];
+  if (lastBarDate !== getCurrentUsMarketDateString()) {
+    return data;
+  }
+
+  const close = liveQuote.price;
+  const mergedLastBar: OHLCRecord = {
+    ...lastBar,
+    close,
+    high: Math.max(lastBar.high, close),
+    low: Math.min(lastBar.low, close),
+  };
+
+  return [...data.slice(0, -1), mergedLastBar];
+}
+
+export function KLineChart({
+  selectedStock,
+  assetType,
+  liveQuote,
+}: KLineChartProps) {
   const defaultTimeRange: TimeRange = assetType === "crypto" ? "15M" : "D";
   const [timeRange, setTimeRange] = useState<TimeRange>(defaultTimeRange);
   const [ohlcData, setOhlcData] = useState<OHLCRecord[]>([]);
@@ -399,6 +444,11 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     // For intraday data (crypto 15M, 1H, 4H), use Unix timestamp
     // For daily+ data, use YYYY-MM-DD format
     const isIntradayData = ["15M", "1H", "4H"].includes(timeRange);
+    const displayData = mergeLiveQuoteIntoLatestStockBar(
+      ohlcData,
+      assetType,
+      liveQuote,
+    );
 
     // Use browser's timezone offset (auto-adapt to user's local timezone)
     const browserOffsetSeconds = -new Date().getTimezoneOffset() * 60;
@@ -406,7 +456,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
     const formattedData: CandlestickData[] = [];
     const volumeData: { time: Time; value: number; color: string }[] = [];
 
-    for (const d of ohlcData) {
+    for (const d of displayData) {
       // Use backend's timestamp field if available (for intraday data)
       // Otherwise parse date string for daily+ data
       let time: Time;
@@ -555,7 +605,7 @@ export function KLineChart({ selectedStock, assetType }: KLineChartProps) {
         chartRef.current = null;
       }
     };
-  }, [ohlcData, resolvedTheme, trendMode, timeRange]);
+  }, [assetType, liveQuote, ohlcData, resolvedTheme, trendMode, timeRange]);
 
   // Render
   if (!selectedStock) {
