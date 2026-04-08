@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
 from zoneinfo import ZoneInfo
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yfinance as yf
 
-from app.database.ohlc import update_metadata, upsert_ohlc_overwrite
+import app.database as stock_db
 from app.services.trading_hours import should_update_stocks
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,64 @@ def fetch_recent_ohlc(symbols: List[str], days: int = 5) -> Dict[str, List[Dict]
     except Exception as exc:
         logger.error(f"Failed to fetch data: {exc}")
         return {}
+
+
+def get_current_market_date(now: datetime | None = None) -> date:
+    """Return the current US market date in America/New_York."""
+    current = now or datetime.now(US_EASTERN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_EASTERN)
+    else:
+        current = current.astimezone(US_EASTERN)
+    return current.date()
+
+
+def fetch_recent_ohlc_from_mcp(
+    symbols: List[str],
+    days: int = 5,
+    market_date: date | None = None,
+) -> Dict[str, List[Dict]]:
+    """Fetch recent daily OHLC rows through the MCP stock-history client."""
+    from app.mcp_client.finance_client import call_get_stock_history
+
+    end_date = market_date or get_current_market_date()
+    start_date = end_date - timedelta(days=days)
+    result: Dict[str, List[Dict]] = {}
+
+    for symbol in symbols:
+        try:
+            data = call_get_stock_history(symbol, start_date.isoformat(), end_date.isoformat())
+            records: List[Dict] = []
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                if not row.get("date"):
+                    continue
+                records.append(
+                    {
+                        "date": str(row["date"]),
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": int(row["volume"]),
+                    }
+                )
+
+            if not records:
+                logger.warning(f"No MCP stock history returned for {symbol}")
+                continue
+
+            result[symbol] = records
+            latest = records[-1]
+            logger.info(
+                f"✓ {symbol}: {len(records)} MCP records | "
+                f"Latest: {latest['date']} Close=${latest['close']:.2f}"
+            )
+        except Exception as exc:
+            logger.error(f"Failed to fetch MCP history for {symbol}: {exc}")
+
+    return result
 
 
 async def _fetch_with_rate_limit(
@@ -257,7 +316,7 @@ def update_stocks_intraday_sync() -> None:
     logger.info("Starting intraday stock update")
     logger.info("=" * 60)
 
-    data_by_symbol = fetch_recent_ohlc(SYMBOLS, days=5)
+    data_by_symbol = fetch_recent_ohlc_from_mcp(SYMBOLS, days=5)
     if not data_by_symbol:
         logger.error("No data fetched, aborting update")
         return
@@ -268,9 +327,9 @@ def update_stocks_intraday_sync() -> None:
     for symbol, records in data_by_symbol.items():
         try:
             if records:
-                upsert_ohlc_overwrite(symbol, records)
+                stock_db.upsert_ohlc_overwrite(symbol, records)
                 dates = [r["date"] for r in records]
-                update_metadata(symbol, min(dates), max(dates))
+                stock_db.update_metadata(symbol, min(dates), max(dates))
                 latest = records[-1]
                 today_prices.append(f"{symbol}=${latest['close']:.2f}")
                 success_count += 1

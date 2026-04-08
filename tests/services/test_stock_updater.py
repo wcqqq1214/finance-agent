@@ -4,7 +4,11 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from app.services.stock_updater import _extract_symbol_frame, fetch_recent_ohlc
+from app.services.stock_updater import (
+    _extract_symbol_frame,
+    fetch_recent_ohlc,
+    update_stocks_intraday_sync,
+)
 
 
 def test_extract_symbol_frame_single_symbol_multiindex():
@@ -154,3 +158,50 @@ def test_fetch_recent_ohlc_batches_symbols_in_single_download_call():
 
     mock_download.assert_called_once()
     assert mock_download.call_args.kwargs["tickers"] == ["AAPL", "MSFT"]
+
+
+def test_update_stocks_intraday_sync_prefers_mcp_history_over_yfinance():
+    """Intraday stock refresh should use MCP history so rate-limited yfinance is bypassed."""
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Close", "AAPL"),
+            ("High", "AAPL"),
+            ("Low", "AAPL"),
+            ("Open", "AAPL"),
+            ("Volume", "AAPL"),
+        ]
+    )
+    yfinance_frame = pd.DataFrame(
+        [[258.03, 259.75, 256.53, 258.51, 16640495]],
+        index=pd.DatetimeIndex(["2026-04-08"], tz="UTC"),
+        columns=columns,
+    )
+    mcp_rows = [
+        {
+            "date": "2026-04-08",
+            "open": 258.51,
+            "high": 259.75,
+            "low": 256.53,
+            "close": 258.03,
+            "volume": 16640495,
+        }
+    ]
+
+    with patch("app.services.stock_updater.should_update_stocks", return_value=True):
+        with patch("app.services.stock_updater.SYMBOLS", ["AAPL"]):
+            with patch("app.database.upsert_ohlc_overwrite") as mock_upsert:
+                with patch("app.database.update_metadata") as mock_update_metadata:
+                    with patch(
+                        "app.mcp_client.finance_client.call_get_stock_history",
+                        return_value=mcp_rows,
+                    ) as mock_history:
+                        with patch(
+                            "app.services.stock_updater.yf.download",
+                            return_value=yfinance_frame,
+                        ) as mock_download:
+                            update_stocks_intraday_sync()
+
+    mock_history.assert_called_once()
+    mock_download.assert_not_called()
+    mock_upsert.assert_called_once_with("AAPL", mcp_rows)
+    mock_update_metadata.assert_called_once_with("AAPL", "2026-04-08", "2026-04-08")

@@ -1,16 +1,20 @@
 """OHLC data API endpoints."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.database import get_metadata, get_ohlc_aggregated
+from app.services.market_calendar import is_nyse_trading_day
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+US_EASTERN = ZoneInfo("America/New_York")
+FALLBACK_LOOKBACK_DAYS = 5
 
 
 class OHLCRecord(BaseModel):
@@ -33,6 +37,82 @@ class DataStatusResponse(BaseModel):
     data_start: Optional[str]
     data_end: Optional[str]
     total_records: int
+
+
+def _current_market_date(now: datetime | None = None) -> date:
+    """Return the current market date in America/New_York."""
+    current = now or datetime.now(US_EASTERN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_EASTERN)
+    else:
+        current = current.astimezone(US_EASTERN)
+    return current.date()
+
+
+def _parse_record_date(value: str) -> date:
+    """Parse an OHLC record date string into a date."""
+    return datetime.fromisoformat(value).date()
+
+
+def _get_latest_persisted_stock_date(symbol: str, start_date: date, end_date: date) -> date | None:
+    """Return the latest persisted raw daily stock date in the requested window."""
+    from app.database import get_ohlc
+
+    rows = get_ohlc(symbol, start_date.isoformat(), end_date.isoformat())
+    if not rows:
+        return None
+    return _parse_record_date(str(rows[-1]["date"]))
+
+
+def _refresh_stock_rows_if_stale(
+    symbol: str,
+    start_date: date,
+    end_date: date,
+    interval: str,
+) -> bool:
+    """Backfill latest stock rows via MCP when the DB lags behind the market date."""
+    if "-" in symbol:
+        return False
+
+    market_date = _current_market_date()
+    if interval not in {"day", "week", "month", "year"}:
+        return False
+    if end_date < market_date:
+        return False
+    if not is_nyse_trading_day(market_date):
+        return False
+
+    lookback_start = max(start_date, market_date - timedelta(days=FALLBACK_LOOKBACK_DAYS))
+    latest_persisted_date = _get_latest_persisted_stock_date(symbol, lookback_start, end_date)
+    if latest_persisted_date is not None and latest_persisted_date >= market_date:
+        return False
+
+    fetch_start_date = lookback_start
+    if latest_persisted_date is not None:
+        fetch_start_date = max(start_date, latest_persisted_date - timedelta(days=1))
+
+    from app.database import update_metadata, upsert_ohlc_overwrite
+    from app.mcp_client.finance_client import call_get_stock_history
+
+    try:
+        fresh_rows = call_get_stock_history(
+            symbol.upper(),
+            fetch_start_date.isoformat(),
+            market_date.isoformat(),
+        )
+        if not fresh_rows:
+            return False
+
+        upsert_ohlc_overwrite(symbol.upper(), fresh_rows)
+        dates = [
+            str(row["date"]) for row in fresh_rows if isinstance(row, dict) and row.get("date")
+        ]
+        if dates:
+            update_metadata(symbol.upper(), min(dates), max(dates))
+        return True
+    except Exception as exc:
+        logger.warning("Failed to refresh stale stock OHLC rows for %s: %s", symbol, exc)
+        return False
 
 
 def get_stock_ohlc_from_db(
@@ -61,10 +141,11 @@ def get_stock_ohlc_from_db(
         )
 
     # Default to 5 years if not specified
+    market_date = _current_market_date()
     if not end:
-        end = datetime.now().date().isoformat()
+        end = market_date.isoformat()
     if not start:
-        start = (datetime.now().date() - timedelta(days=5 * 365)).isoformat()
+        start = (market_date - timedelta(days=5 * 365)).isoformat()
 
     # Validate date range
     try:
@@ -78,6 +159,8 @@ def get_stock_ohlc_from_db(
     # Query database with aggregation
     try:
         data = get_ohlc_aggregated(symbol, start, end, interval)
+        if _refresh_stock_rows_if_stale(symbol, start_date, end_date, interval):
+            data = get_ohlc_aggregated(symbol, start, end, interval)
         if not data:
             raise HTTPException(status_code=404, detail=f"No OHLC data found for {symbol}")
 
