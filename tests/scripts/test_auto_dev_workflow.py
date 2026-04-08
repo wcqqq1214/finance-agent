@@ -888,14 +888,6 @@ def test_ff_merge_to_wcq_refuses_non_fast_forward_branch(tmp_path: Path) -> None
     assert _git(repo, "show-ref", "--verify", "refs/heads/feat/20260407-diverged").returncode == 0
 
 
-def test_squash_merge_to_wcq_redirects_to_ff_merge_script(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    script = _script_path("squash_merge_to_wcq.sh")
-
-    result = _run(
-        ["bash", str(script)],
-        cwd=repo,
-    )
-
-    assert result.returncode != 0
-    assert "Use ff_merge_to_wcq.sh instead." in result.stderr
+def test_squash_merge_to_wcq_script_is_absent() -> None:
+    legacy_script = SCRIPT_ROOT / "squash_merge_to_wcq.sh"
+    assert not legacy_script.exists()
