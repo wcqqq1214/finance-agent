@@ -77,3 +77,10 @@ test("k line chart ignores stale OHLC responses after a newer request starts", (
     /if\s*\(!requestGateRef\.current\.isCurrent\(requestId\)\)\s*\{\s*return;\s*\}/,
   );
 });
+
+test("k line chart delegates latest stock legend percent to quote-aware legend metrics", () => {
+  assert.match(source, /resolveLegendChangeMetrics/);
+  assert.match(source, /hoveredTime:\s*param\.time/);
+  assert.match(source, /liveQuote,\s*currentUsMarketDate/);
+  assert.match(source, /legendLabel\s*=\s*legendMetrics\.label/);
+});

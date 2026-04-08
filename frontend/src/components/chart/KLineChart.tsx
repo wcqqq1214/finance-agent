@@ -15,6 +15,7 @@ import { useTheme } from "next-themes";
 import { TimeRangeSelector } from "./TimeRangeSelector";
 import { api } from "@/lib/api";
 import { createLatestOnlyRequestGate } from "@/lib/latest-only-request";
+import { resolveLegendChangeMetrics } from "@/lib/stock-chart-legend";
 import { useToast } from "@/hooks/use-toast";
 import {
   STOCK_POLL_INTERVAL_MS,
@@ -472,6 +473,7 @@ export function KLineChart({
       assetType,
       liveQuote,
     );
+    const currentUsMarketDate = getCurrentUsMarketDateString();
 
     // Use browser's timezone offset (auto-adapt to user's local timezone)
     const browserOffsetSeconds = -new Date().getTimezoneOffset() * 60;
@@ -506,6 +508,10 @@ export function KLineChart({
         color: d.close >= d.open ? volumeUpColor : volumeDownColor,
       });
     }
+    const latestFormattedTime =
+      formattedData.length > 0
+        ? formattedData[formattedData.length - 1]?.time
+        : null;
 
     series.setData(formattedData);
     volumeSeries.setData(volumeData);
@@ -532,11 +538,20 @@ export function KLineChart({
         | undefined;
 
       if (ohlc && volData) {
-        const change = ohlc.close - ohlc.open;
-        const changePct = (change / ohlc.open) * 100;
-        const isUp = change >= 0;
+        const legendMetrics = resolveLegendChangeMetrics({
+          assetType,
+          hoveredTime: param.time,
+          latestTime: latestFormattedTime,
+          ohlc,
+          liveQuote,
+          currentUsMarketDate,
+        });
+        const isUp = legendMetrics.isUp;
         const color = isUp ? upColor : downColor;
         const sign = isUp ? "+" : "";
+        const legendLabel = legendMetrics.label
+          ? `${legendMetrics.label} `
+          : "";
 
         legend.style.display = "block";
         legend.innerHTML =
@@ -544,7 +559,7 @@ export function KLineChart({
           `&nbsp;&nbsp;<span style="color:${textColor}">H&nbsp;$${ohlc.high.toFixed(2)}</span>` +
           `&nbsp;&nbsp;<span style="color:${textColor}">L&nbsp;$${ohlc.low.toFixed(2)}</span>` +
           `&nbsp;&nbsp;<span style="color:${textColor}">C&nbsp;$${ohlc.close.toFixed(2)}</span>` +
-          `&nbsp;&nbsp;<span style="color:${color}">${sign}${changePct.toFixed(2)}%</span>` +
+          `&nbsp;&nbsp;<span style="color:${color}">${legendLabel}${sign}${legendMetrics.percent.toFixed(2)}%</span>` +
           `&nbsp;&nbsp;<span style="color:${borderColor}">Vol&nbsp;${formatVolume(volData.value)}</span>`;
       } else {
         legend.style.display = "none";
