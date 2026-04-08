@@ -1,0 +1,87 @@
+name: Container Stack Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/container-stack-smoke.yml"
+      - "docker-compose.yml"
+      - "docker/**"
+      - "scripts/deploy/**"
+      - "tests/scripts/test_container_stack_contract.py"
+      - ".env.example"
+      - "docs/deployment/containerized.md"
+  push:
+    branches:
+      - wcq
+      - "feat/**"
+      - "fix/**"
+    paths:
+      - ".github/workflows/container-stack-smoke.yml"
+      - "docker-compose.yml"
+      - "docker/**"
+      - "scripts/deploy/**"
+      - "tests/scripts/test_container_stack_contract.py"
+      - ".env.example"
+      - "docs/deployment/containerized.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+            prepare_env: cp .env.example .env
+            start_cmd: bash scripts/deploy/start_container_stack.sh
+            smoke_cmd: bash scripts/deploy/smoke_test_container_stack.sh
+            stop_cmd: bash scripts/deploy/stop_container_stack.sh
+          - os: macos-latest
+            shell: bash
+            prepare_env: cp .env.example .env
+            start_cmd: bash scripts/deploy/start_container_stack.sh
+            smoke_cmd: bash scripts/deploy/smoke_test_container_stack.sh
+            stop_cmd: bash scripts/deploy/stop_container_stack.sh
+          - os: windows-latest
+            shell: pwsh
+            prepare_env: Copy-Item .env.example .env
+            start_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/start_container_stack.ps1
+            smoke_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/smoke_test_container_stack.ps1
+            stop_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/stop_container_stack.ps1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare .env
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.prepare_env }}
+
+      - name: Check Docker availability
+        shell: ${{ matrix.shell }}
+        run: |
+          docker version
+          docker compose version
+
+      - name: Resolve compose configuration
+        shell: ${{ matrix.shell }}
+        run: docker compose config
+
+      - name: Start container stack
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.start_cmd }}
+
+      - name: Run smoke checks
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.smoke_cmd }}
+
+      - name: Tear down container stack
+        if: always()
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.stop_cmd }}

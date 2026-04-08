@@ -32,7 +32,18 @@
 - **向量数据库**: `chromadb`, `langchain-chroma`
 - **配置**: `python-dotenv`
 
-## 快速开始
+## 部署
+
+官方部署路径是容器化。请优先阅读 [docs/deployment/containerized.md](docs/deployment/containerized.md)，其中集中说明了：
+
+- `docker compose up -d --build`
+- `scripts/deploy/start_container_stack.sh`
+- `scripts/deploy/start_container_stack.ps1`
+- `.env.example` 到 `.env` 的准备步骤
+
+本机开发仍然保留，但与部署流程分离，继续使用 `scripts/startup/` 和前端开发服务器。
+
+## 本机开发快速开始
 
 ### 前置要求
 

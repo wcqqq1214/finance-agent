@@ -32,7 +32,18 @@ This project references and is inspired by the following open-source projects:
 - **Vector DB**: `chromadb`, `langchain-chroma`
 - **Config**: `python-dotenv`
 
-## Quick Start
+## Deployment
+
+The official deployment path is containerized. Use the dedicated guide at [docs/deployment/containerized.md](docs/deployment/containerized.md) for:
+
+- `docker compose up -d --build`
+- `scripts/deploy/start_container_stack.sh`
+- `scripts/deploy/start_container_stack.ps1`
+- `.env.example` to `.env`
+
+Native development remains supported separately through `scripts/startup/` and the frontend dev server.
+
+## Native Development Quick Start
 
 ### Prerequisites
 
