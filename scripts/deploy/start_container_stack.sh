@@ -32,8 +32,6 @@ main() {
 
   cd "${PROJECT_ROOT}"
   docker compose up -d --build
-
-  "${SCRIPT_DIR}/smoke_test_container_stack.sh"
 }
 
 main "$@"

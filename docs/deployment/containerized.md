@@ -15,7 +15,7 @@ cp .env.example .env
 On Windows PowerShell:
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.example .env -Force
 ```
 
 If `.env` is missing, the startup wrappers fail fast and tell you to copy `.env.example` first.
@@ -58,6 +58,26 @@ The smoke scripts probe:
 - `http://localhost:8001/health`
 
 They also verify Redis health from inside the Compose stack.
+
+## CI Smoke Workflow
+
+The repository's GitHub Actions smoke workflow now uses two runner lanes:
+
+- GitHub-hosted matrix: `ubuntu-24.04` and `windows-2025`
+- Dedicated self-hosted macOS job: `[self-hosted, macOS, container-smoke]`
+
+The macOS self-hosted lane is restricted to trusted flows only. The workflow keeps `pull_request`, but the macOS job is guarded so fork pull requests do not target self-hosted infrastructure. That means real three-platform smoke coverage is guaranteed for `push`, `workflow_dispatch`, and same-repository pull requests.
+
+The CI smoke flow is intentionally split into separate phases:
+
+1. Prepare `.env` by copying `.env.example` to `.env` (`Copy-Item ... -Force` on Windows)
+2. Check Docker availability
+3. Resolve Compose configuration
+4. Start the stack
+5. Run smoke checks
+6. Tear the stack down
+
+The startup wrappers only bring the stack up. They do not run smoke verification internally anymore, so GitHub Actions can report startup failures and smoke failures as separate steps.
 
 ## Service Topology
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _deploy_script(name: str) -> Path:
     return REPO_ROOT / "scripts" / "deploy" / name
+
+
+def _workflow_job_block(workflow: str, job_name: str) -> str:
+    """Return one top-level workflow job block by job id."""
+    match = re.search(
+        rf"(?ms)^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        workflow,
+    )
+    assert match is not None
+    return match.group("body")
 
 
 def test_docker_compose_defines_full_container_stack() -> None:
@@ -88,6 +99,15 @@ def test_start_wrapper_requires_dotenv_and_uses_compose_up() -> None:
     assert "docker compose up -d --build" in powershell_script
 
 
+def test_start_wrappers_do_not_run_smoke_checks() -> None:
+    """Startup wrappers should not invoke the smoke tests directly."""
+    shell_script = _deploy_script("start_container_stack.sh").read_text(encoding="utf-8")
+    powershell_script = _deploy_script("start_container_stack.ps1").read_text(encoding="utf-8")
+
+    assert "smoke_test_container_stack.sh" not in shell_script
+    assert "smoke_test_container_stack.ps1" not in powershell_script
+
+
 def test_stop_wrapper_uses_compose_down() -> None:
     """Stop wrappers should tear the stack down with docker compose down."""
     shell_script = _deploy_script("stop_container_stack.sh").read_text(encoding="utf-8")
@@ -137,17 +157,28 @@ def test_wrapper_scripts_do_not_install_host_dependencies() -> None:
 
 def test_start_wrapper_dotenv_fail_fast() -> None:
     """Shell startup wrapper should fail fast with a clear message when .env is missing."""
-    script = _deploy_script("start_container_stack.sh")
+    temp_root = REPO_ROOT / ".tmp-test-start-wrapper-dotenv-fail-fast"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    script = temp_root / "scripts" / "deploy" / "start_container_stack.sh"
     env = os.environ.copy()
-
-    result = subprocess.run(
-        ["bash", str(script)],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        _deploy_script("start_container_stack.sh").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
+
+    try:
+        result = subprocess.run(
+            ["bash", str(script)],
+            cwd=temp_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
     assert result.returncode != 0
     combined_output = f"{result.stdout}\n{result.stderr}"
@@ -204,14 +235,77 @@ def test_readme_docs_point_to_container_guide_and_keep_native_dev_separate() -> 
         assert "scripts/startup/" in text
 
 
-def test_container_smoke_workflow_covers_three_operating_systems() -> None:
-    """Smoke workflow should validate the container stack on Linux, macOS, and Windows."""
+def test_container_smoke_workflow_pins_supported_runners_and_isolates_macos() -> None:
+    """Smoke workflow should pin hosted runners and isolate macOS to self-hosted."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
         encoding="utf-8"
     )
 
-    for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
-        assert runner in workflow
+    assert "ubuntu-24.04" in workflow
+    assert "windows-2025" in workflow
+    for runner in ("ubuntu-latest", "windows-latest", "macos-latest"):
+        assert runner not in workflow
+
+    matrix_job = _workflow_job_block(workflow, "smoke-hosted")
+    assert "ubuntu-24.04" in matrix_job
+    assert "windows-2025" in matrix_job
+    assert "macos" not in matrix_job.lower()
+
+    mac_job = _workflow_job_block(workflow, "smoke-macos")
+    assert "self-hosted" in mac_job
+    assert "macOS" in mac_job
+    assert "container-smoke" in mac_job
+    assert "timeout-minutes: 30" in mac_job
+    assert re.search(
+        r"github\.event_name\s*!=\s*'pull_request'\s*\|\|\s*github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository",
+        mac_job,
+    )
+
+
+def test_container_smoke_workflow_preserves_pull_request_trigger_only() -> None:
+    """Workflow should keep pull_request and avoid pull_request_target."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pull_request:" in workflow
+    assert "pull_request_target" not in workflow
+
+
+def test_container_smoke_workflow_uses_checkout_v5() -> None:
+    """Workflow should upgrade checkout to v5."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "actions/checkout@v5" in workflow
+
+
+def test_container_smoke_workflow_keeps_docker_availability_check() -> None:
+    """Docker availability step must check both docker and docker compose."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    match = re.search(
+        r"-\s*name:\s*Check Docker availability\s*\n(?P<body>(?:^[ \t]+.*\n)+)",
+        workflow,
+        flags=re.MULTILINE,
+    )
+    assert match
+    body = match.group("body")
+    assert "docker version" in body
+    assert "docker compose version" in body
+
+
+def test_container_smoke_workflow_windows_server_platform_check() -> None:
+    """Windows job should enforce Linux/amd64 Docker server platform."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docker version --format '{{.Server.Os}}/{{.Server.Arch}}'" in workflow
+    assert "linux/amd64" in workflow
 
 
 def test_container_smoke_workflow_does_not_use_matrix_context_for_step_shells() -> None:
@@ -238,6 +332,31 @@ def test_container_smoke_workflow_prepares_env_and_uses_wrappers() -> None:
     assert "scripts/deploy/smoke_test_container_stack.ps1" in workflow
     assert "scripts/deploy/stop_container_stack.ps1" in workflow
 
+    assert "cp .env.example .env" in workflow
+    assert "Copy-Item .env.example .env -Force" in workflow
+
+
+def test_container_smoke_workflow_invokes_correct_wrappers_per_phase() -> None:
+    """Workflow should call the start and smoke wrapper explicitly in distinct steps."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    start_match = re.search(
+        r"-\s*name:\s*Start container stack\s*\n(?P<body>(?:^[ \t]+.*\n)+)",
+        workflow,
+        flags=re.MULTILINE,
+    )
+    smoke_match = re.search(
+        r"-\s*name:\s*Run smoke checks\s*\n(?P<body>(?:^[ \t]+.*\n)+)",
+        workflow,
+        flags=re.MULTILINE,
+    )
+    assert start_match
+    assert smoke_match
+    assert "start_container_stack" in start_match.group("body")
+    assert "smoke_test_container_stack" in smoke_match.group("body")
+
 
 def test_container_smoke_workflow_runs_compose_resolution_and_cleanup() -> None:
     """Workflow should resolve compose config and always tear the stack down."""
@@ -246,4 +365,12 @@ def test_container_smoke_workflow_runs_compose_resolution_and_cleanup() -> None:
     )
 
     assert "docker compose config" in workflow
-    assert "if: always()" in workflow
+    teardown_match = re.search(
+        r"-\s*name:\s*Tear down container stack\s*\n(?P<body>(?:^[ \t]+.*\n)+)",
+        workflow,
+        flags=re.MULTILINE,
+    )
+    assert teardown_match
+    teardown_body = teardown_match.group("body")
+    assert "if: always()" in teardown_body
+    assert "stop_container_stack" in teardown_body

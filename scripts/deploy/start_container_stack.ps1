@@ -29,7 +29,6 @@ Require-Docker
 Push-Location $ProjectRoot
 try {
     docker compose up -d --build
-    & (Join-Path $ScriptDir "smoke_test_container_stack.ps1")
 }
 finally {
     Pop-Location

@@ -29,38 +29,78 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
+  smoke-hosted:
     name: Smoke on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            shell: bash
+          - os: ubuntu-24.04
             prepare_env: cp .env.example .env
-            start_cmd: bash scripts/deploy/start_container_stack.sh
-            smoke_cmd: bash scripts/deploy/smoke_test_container_stack.sh
-            stop_cmd: bash scripts/deploy/stop_container_stack.sh
-          - os: macos-latest
-            shell: bash
-            prepare_env: cp .env.example .env
-            start_cmd: bash scripts/deploy/start_container_stack.sh
-            smoke_cmd: bash scripts/deploy/smoke_test_container_stack.sh
-            stop_cmd: bash scripts/deploy/stop_container_stack.sh
-          - os: windows-latest
-            shell: pwsh
-            prepare_env: Copy-Item .env.example .env
-            start_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/start_container_stack.ps1
-            smoke_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/smoke_test_container_stack.ps1
-            stop_cmd: powershell -ExecutionPolicy Bypass -File scripts/deploy/stop_container_stack.ps1
+          - os: windows-2025
+            prepare_env: Copy-Item .env.example .env -Force
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Prepare .env
         run: ${{ matrix.prepare_env }}
+
+      - name: Check Docker availability
+        run: |
+          docker version
+          docker compose version
+
+      - name: Check Windows Docker server platform
+        if: runner.os == 'Windows'
+        run: |
+          $dockerServerPlatform = docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
+          if ($dockerServerPlatform -ne 'linux/amd64') {
+            Write-Error "Expected Docker server platform linux/amd64 but found $dockerServerPlatform"
+            exit 1
+          }
+
+      - name: Resolve compose configuration
+        run: docker compose config
+
+      - name: Start container stack
+        if: runner.os != 'Windows'
+        run: bash scripts/deploy/start_container_stack.sh
+
+      - name: Start container stack
+        if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts/deploy/start_container_stack.ps1
+
+      - name: Run smoke checks
+        if: runner.os != 'Windows'
+        run: bash scripts/deploy/smoke_test_container_stack.sh
+
+      - name: Run smoke checks
+        if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts/deploy/smoke_test_container_stack.ps1
+
+      - name: Tear down container stack
+        if: always() && runner.os != 'Windows'
+        run: bash scripts/deploy/stop_container_stack.sh
+
+      - name: Tear down container stack
+        if: always() && runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts/deploy/stop_container_stack.ps1
+
+  smoke-macos:
+    name: Smoke on macOS self-hosted
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, macOS, container-smoke]
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Prepare .env
+        run: cp .env.example .env
 
       - name: Check Docker availability
         run: |
@@ -71,11 +111,11 @@ jobs:
         run: docker compose config
 
       - name: Start container stack
-        run: ${{ matrix.start_cmd }}
+        run: bash scripts/deploy/start_container_stack.sh
 
       - name: Run smoke checks
-        run: ${{ matrix.smoke_cmd }}
+        run: bash scripts/deploy/smoke_test_container_stack.sh
 
       - name: Tear down container stack
         if: always()
-        run: ${{ matrix.stop_cmd }}
+        run: bash scripts/deploy/stop_container_stack.sh
