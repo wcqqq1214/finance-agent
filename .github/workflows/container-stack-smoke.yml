@@ -60,28 +60,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare .env
-        shell: ${{ matrix.shell }}
         run: ${{ matrix.prepare_env }}
 
       - name: Check Docker availability
-        shell: ${{ matrix.shell }}
         run: |
           docker version
           docker compose version
 
       - name: Resolve compose configuration
-        shell: ${{ matrix.shell }}
         run: docker compose config
 
       - name: Start container stack
-        shell: ${{ matrix.shell }}
         run: ${{ matrix.start_cmd }}
 
       - name: Run smoke checks
-        shell: ${{ matrix.shell }}
         run: ${{ matrix.smoke_cmd }}
 
       - name: Tear down container stack
         if: always()
-        shell: ${{ matrix.shell }}
         run: ${{ matrix.stop_cmd }}

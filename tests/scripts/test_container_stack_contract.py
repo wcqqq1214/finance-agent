@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -211,6 +212,15 @@ def test_container_smoke_workflow_covers_three_operating_systems() -> None:
 
     for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
         assert runner in workflow
+
+
+def test_container_smoke_workflow_does_not_use_matrix_context_for_step_shells() -> None:
+    """Step shells should be explicit because matrix context is rejected in that field."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert re.search(r"^\s*shell:\s*\$\{\{\s*matrix\.", workflow, flags=re.MULTILINE) is None
 
 
 def test_container_smoke_workflow_prepares_env_and_uses_wrappers() -> None:
