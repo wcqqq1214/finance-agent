@@ -53,6 +53,47 @@ jobs:
           docker version
           docker compose version
 
+      - name: Switch Windows Docker engine to Linux containers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dockerServerPlatform = docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
+          if ($dockerServerPlatform -eq 'linux/amd64') {
+            Write-Host "Docker server already uses Linux containers."
+            exit 0
+          }
+
+          $dockerCliPath = Join-Path $Env:ProgramFiles 'Docker\Docker\DockerCli.exe'
+          if (Test-Path $dockerCliPath) {
+            & $dockerCliPath -SwitchLinuxEngine
+          }
+          else {
+            try {
+              docker desktop engine use linux
+            }
+            catch {
+              Write-Error "Unable to switch Docker to Linux containers on this runner."
+              exit 1
+            }
+          }
+
+          $dockerServerPlatform = $null
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            Start-Sleep -Seconds 5
+            try {
+              $dockerServerPlatform = docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
+              if ($dockerServerPlatform -eq 'linux/amd64') {
+                Write-Host "Docker server platform after switch: $dockerServerPlatform"
+                exit 0
+              }
+            }
+            catch {
+            }
+          }
+
+          Write-Error "Docker server did not report linux/amd64 after switching. Last observed platform: $dockerServerPlatform"
+          exit 1
+
       - name: Check Windows Docker server platform
         if: runner.os == 'Windows'
         run: |

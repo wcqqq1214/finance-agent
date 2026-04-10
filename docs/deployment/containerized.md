@@ -68,6 +68,8 @@ The repository's GitHub Actions smoke workflow now uses two runner lanes:
 
 The macOS self-hosted lane is restricted to trusted flows only. The workflow keeps `pull_request`, but the macOS job is guarded so fork pull requests do not target self-hosted infrastructure. That means real three-platform smoke coverage is guaranteed for `push`, `workflow_dispatch`, and same-repository pull requests.
 
+On `windows-2025`, the workflow now explicitly checks whether Docker is already running Linux containers. If the hosted runner comes up in Windows-container mode, CI switches the engine before the final `linux/amd64` preflight guard. The job still fails if the runner cannot provide a Linux Docker server after that switch attempt.
+
 The CI smoke flow is intentionally split into separate phases:
 
 1. Prepare `.env` by copying `.env.example` to `.env` (`Copy-Item ... -Force` on Windows)
@@ -78,6 +80,8 @@ The CI smoke flow is intentionally split into separate phases:
 6. Tear the stack down
 
 The startup wrappers only bring the stack up. They do not run smoke verification internally anymore, so GitHub Actions can report startup failures and smoke failures as separate steps.
+
+Both Dockerfiles intentionally avoid a remote `docker/dockerfile` syntax image now. The smoke path only needs standard Dockerfile instructions, so removing that extra syntax pull eliminates one more external dependency before image builds start.
 
 ## Service Topology
 

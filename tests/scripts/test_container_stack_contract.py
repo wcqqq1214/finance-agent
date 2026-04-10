@@ -75,6 +75,22 @@ def test_frontend_dockerfile_builds_and_runs_production_app() -> None:
     assert "3000" in dockerfile
 
 
+def test_container_dockerfiles_do_not_require_remote_syntax_frontend() -> None:
+    """Frontend Dockerfile should not depend on a remote Dockerfile syntax image."""
+    frontend_dockerfile = REPO_ROOT / "docker" / "frontend.Dockerfile"
+    dockerfile = frontend_dockerfile.read_text(encoding="utf-8")
+
+    assert "# syntax=docker/dockerfile:1.7" not in dockerfile
+
+
+def test_container_dockerfiles_do_not_require_remote_syntax_backend() -> None:
+    """Backend Dockerfile should not depend on a remote Dockerfile syntax image."""
+    backend_dockerfile = REPO_ROOT / "docker" / "backend.Dockerfile"
+    dockerfile = backend_dockerfile.read_text(encoding="utf-8")
+
+    assert "# syntax=docker/dockerfile:1.7" not in dockerfile
+
+
 def test_wrapper_scripts_exist_for_shell_and_powershell() -> None:
     """Deployment wrappers should exist for Unix shells and PowerShell."""
     for name in (
@@ -306,6 +322,16 @@ def test_container_smoke_workflow_windows_server_platform_check() -> None:
 
     assert "docker version --format '{{.Server.Os}}/{{.Server.Arch}}'" in workflow
     assert "linux/amd64" in workflow
+
+
+def test_container_smoke_workflow_prepares_windows_linux_engine_before_platform_check() -> None:
+    """Windows hosted smoke should try to switch Docker into Linux-container mode first."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "container-stack-smoke.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Switch Windows Docker engine to Linux containers" in workflow
+    assert "DockerCli.exe" in workflow or "docker desktop engine use linux" in workflow
 
 
 def test_container_smoke_workflow_does_not_use_matrix_context_for_step_shells() -> None:
