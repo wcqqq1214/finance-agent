@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.binance_client import fetch_klines_with_pagination
+from app.services.binance_client import BinancePaginationError, fetch_klines_with_pagination
 
 
 @pytest.mark.asyncio
@@ -116,8 +116,29 @@ async def test_fetch_klines_exactly_1000():
         mock_fetch.return_value = mock_data
 
         result = await fetch_klines_with_pagination(
-            symbol="BTCUSDT", interval="1m", start_time=0, end_time=1000000
+            symbol="BTCUSDT", interval="1m", start_time=0, end_time=999000
         )
 
         assert len(result) == 1000
         assert mock_fetch.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rejects_stale_full_page_without_progress() -> None:
+    """A repeated full page must not make pagination append indefinitely."""
+    stale_page = [{"timestamp": i * 1000, "close": 100.0} for i in range(1000)]
+
+    with patch(
+        "app.services.binance_client.fetch_binance_klines", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.side_effect = [stale_page, stale_page]
+
+        with pytest.raises(
+            BinancePaginationError,
+            match=r"did not advance.*current_start=999001.*last_timestamp=999000",
+        ):
+            await fetch_klines_with_pagination(
+                symbol="BTCUSDT", interval="1m", start_time=0, end_time=1000000
+            )
+
+        assert mock_fetch.call_count == 2

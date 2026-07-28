@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 BINANCE_API_BASE = "https://api.binance.com"
 
 
+class BinancePaginationError(RuntimeError):
+    """Raised when a Binance K-line page cannot advance the pagination cursor."""
+
+
 def parse_kline_response(raw_klines: List[List[Any]]) -> List[Dict[str, Any]]:
     """
     Parse Binance K-line API response into standardized format.
@@ -104,6 +108,7 @@ async def fetch_klines_with_pagination(
 
     Raises:
         httpx.HTTPError: If any API request fails
+        BinancePaginationError: If a full response page does not advance the pagination cursor.
     """
     all_klines = []
     current_start = start_time
@@ -120,17 +125,27 @@ async def fetch_klines_with_pagination(
         if not batch:
             break
 
-        all_klines.extend(batch)
-
         if len(batch) < 1000:
+            all_klines.extend(batch)
             break
 
         last_timestamp = batch[-1]["timestamp"]
 
         if last_timestamp >= end_time:
+            all_klines.extend(batch)
             break
 
-        current_start = last_timestamp + 1
+        next_start = last_timestamp + 1
+        if next_start <= current_start:
+            message = (
+                "Binance pagination did not advance: "
+                f"current_start={current_start}, last_timestamp={last_timestamp}"
+            )
+            logger.error(message)
+            raise BinancePaginationError(message)
+
+        all_klines.extend(batch)
+        current_start = next_start
 
     logger.info(f"Fetched {len(all_klines)} records for {symbol} {interval} with pagination")
     return all_klines
